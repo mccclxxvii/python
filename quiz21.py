@@ -8,23 +8,43 @@ from difflib import SequenceMatcher
 
 def getUser(con,cur,bot,message):
 	userID = -1
-	cur.execute("SELECT ID,FIRST_NAME FROM T_USER WHERE TELEGRAM_ID='"+str(message.from_user.id)+"'")
+	cur.execute("SELECT ID,FIRST_NAME "
+				+"FROM T_USER "
+				+"WHERE TELEGRAM_ID='"+str(message.from_user.id)+"'")
 	user = cur.fetchall()
 	if len(user)==0:
-		cur.execute("INSERT INTO T_USER(TELEGRAM_ID,FIRST_NAME,LAST_NAME,NICK_NAME) values('"+str(message.from_user.id)+"','"+str(message.from_user.first_name).replace('\'','\'\'')+"','"+str(message.from_user.last_name).replace('\'','\'\'')+"','"+str(message.from_user.username).replace('\'','\'\'')+"')")
+		cur.execute("INSERT INTO T_USER(TELEGRAM_ID,FIRST_NAME,LAST_NAME,NICK_NAME) values('"
+									+str(message.from_user.id)+"','"
+									+str(message.from_user.first_name).replace('\'','\'\'')+"','"
+									+str(message.from_user.last_name).replace('\'','\'\'')+"','"
+									+str(message.from_user.username).replace('\'','\'\'')+"')")
 		con.commit()
 		bot.send_message(message.from_user.id,'Привет, '+str(user[0]['FIRST_NAME']))
-		cur.execute("SELECT ID,FIRST_NAME FROM T_USER WHERE TELEGRAM_ID='"+str(message.from_user.id)+"'")
+		cur.execute("SELECT ID,FIRST_NAME "
+					+"FROM T_USER "
+					+"WHERE TELEGRAM_ID='"+str(message.from_user.id)+"'")
 		user = cur.fetchall()
 		bot.send_message(message.from_user.id,'Привет, '+str(user[0]['FIRST_NAME']))
 	else:
-		cur.execute("UPDATE T_USER SET FIRST_NAME='"+str(message.from_user.first_name).replace('\'','\'\'')+"',LAST_NAME='"+str(message.from_user.last_name).replace('\'','\'\'')+"',NICK_NAME='"+str(message.from_user.username).replace('\'','\'\'')+"' where ID="+str(user[0]["ID"]))
-	cur.execute("SELECT * FROM T_USER_BOT ub,T_BOT b WHERE ub.USER_ID="+str(user[0]["ID"])+" AND ub.BOT_ID=b.ID AND b.NAME='@QuizXIVbot'")
+		cur.execute("UPDATE T_USER "+
+					+"SET FIRST_NAME='"+str(message.from_user.first_name).replace('\'','\'\'')+"',"
+					+"LAST_NAME='"+str(message.from_user.last_name).replace('\'','\'\'')+"',"
+					+"NICK_NAME='"+str(message.from_user.username).replace('\'','\'\'')+"' "
+					+"where ID="+str(user[0]["ID"]))
+	cur.execute("SELECT * FROM T_USER_BOT ub,T_BOT b "
+				+"WHERE ub.USER_ID="+str(user[0]["ID"])
+				+" AND ub.BOT_ID=b.ID AND b.NAME='@QuizXIVbot'")
 	user_bot = cur.fetchall()
 	if len(user_bot)==0:
-		cur.execute("INSERT INTO T_USER_BOT (USER_ID,BOT_ID) SELECT "+str(user[0]["ID"])+",ID FROM T_BOT WHERE NAME='@QuizXIVbot'")
+		cur.execute("INSERT INTO T_USER_BOT (USER_ID,BOT_ID) "
+					+"SELECT "+str(user[0]["ID"])+",ID "
+					+"FROM T_BOT "
+					+"WHERE NAME='@QuizXIVbot'")
 	con.commit()
-	cur.execute("SELECT * FROM T_USER_BOT ub,T_BOT b WHERE ub.USER_ID="+str(user[0]["ID"])+" AND ub.BOT_ID=b.ID AND b.NAME='@QuizXIVbot'")
+	cur.execute("SELECT * FROM T_USER_BOT ub,T_BOT b "
+				+"WHERE ub.USER_ID="+str(user[0]["ID"])
+				+" AND ub.BOT_ID=b.ID"
+				+" AND b.NAME='@QuizXIVbot'")
 	user = cur.fetchall()
 	con.commit()
 	if user[0]['STATUS_CD']=="LOCKED":
@@ -34,12 +54,19 @@ def getUser(con,cur,bot,message):
 	return(userID)
 	
 def getGame(con,cur,userID,bot,tgUserId):
-	cur.execute("SELECT q.*,d.QUESTION FROM T_QUEST_MAIN q LEFT JOIN T_QUEST_DICT d ON q.THIS_QUEST_ID=d.ID WHERE q.USER_BOT_ID="+str(userID)+" AND q.STATUS_CD='Active'")
+	cur.execute("SELECT q.*,d.QUESTION "
+				+"FROM T_QUEST_MAIN q "
+				+"LEFT JOIN T_QUEST_DICT d ON q.THIS_QUEST_ID=d.ID "
+				+"WHERE q.USER_BOT_ID="+str(userID)+" AND q.STATUS_CD='Active'")
 	game = cur.fetchall()
 	if len(game)==0:
-		cur.execute("INSERT INTO T_QUEST_MAIN(USER_BOT_ID) values("+str(userID)+")")
+		cur.execute("INSERT INTO T_QUEST_MAIN(USER_BOT_ID) "
+					+"values("+str(userID)+")")
 		con.commit()
-		cur.execute("SELECT q.*,d.QUESTION FROM T_QUEST_MAIN q LEFT JOIN T_QUEST_DICT d ON q.THIS_QUEST_ID=d.ID WHERE q.USER_BOT_ID="+str(userID)+" AND q.STATUS_CD='Active'")
+		cur.execute("SELECT q.*,d.QUESTION "
+					+"FROM T_QUEST_MAIN q "
+					+"LEFT JOIN T_QUEST_DICT d ON q.THIS_QUEST_ID=d.ID "
+					+"WHERE q.USER_BOT_ID="+str(userID)+" AND q.STATUS_CD='Active'")
 		bot.send_message(tgUserId,'Начнем')
 		game = cur.fetchall()
 	return(game[0])
@@ -48,12 +75,26 @@ def getNextQuest(con,cur,game):
 	res = {}
 	mes = []
 	but = ["/next","/add"]
-	cur.execute("UPDATE T_QUEST_MAIN SET THIS_QUEST_ID=null, MODE_CD='Default',LAST_ANSWER_ID=NULL WHERE ID="+str(game['ID']))
+	cur.execute("UPDATE T_QUEST_MAIN "
+				+"SET THIS_QUEST_ID=null, "
+				+"MODE_CD='Default',"
+				+"LAST_ANSWER_ID=NULL "
+				+"WHERE ID="+str(game['ID']))
 	con.commit()
-	cur.execute("SELECT q.* FROM ( SELECT c.*,ROW_NUMBER() over() rwn FROM T_QUEST_DICT c WHERE NOT EXISTS( SELECT 1 FROM T_QUEST_BEEN u WHERE u.GAME_ID="+str(game['ID'])+" AND QUEST_ID=c.ID AND RESULT IS NOT NULL) order by rand()) q where q.rwn=1")
+	cur.execute("SELECT q.* FROM "
+				+"(SELECT c.*,ROW_NUMBER() over() rwn "
+					+"FROM T_QUEST_DICT c "
+					+"WHERE NOT EXISTS("
+								+"SELECT 1 FROM T_QUEST_BEEN u "
+								+"WHERE u.GAME_ID="+str(game['ID'])+" AND QUEST_ID=c.ID AND RESULT IS NOT NULL"
+					+") order by rand()) q "
+				+"where q.rwn=1")
 	quest = cur.fetchall()
 	if len(quest)>0:
-		cur.execute("UPDATE T_QUEST_MAIN SET THIS_QUEST_ID ='"+str(quest[0]['ID'])+"', MODE_CD='Exists Question' WHERE ID="+str(game['ID']))
+		cur.execute("UPDATE T_QUEST_MAIN "
+					+"SET THIS_QUEST_ID ='"+str(quest[0]['ID'])+"', "
+					+"MODE_CD='Exists Question' "
+					+"WHERE ID="+str(game['ID']))
 		con.commit()
 		mes.append(str(quest[0]['QUESTION']))
 		but.append("/get")
@@ -67,7 +108,13 @@ def userMoveCheck(con,cur,game,answer):
 	res = {}
 	mes = []
 	but = ["/next","/add","/get","/dispute","/why"]
-	cur.execute("select d.ANSWER from T_QUEST_DICT d WHERE d.ID="+str(game['THIS_QUEST_ID'])+" union ALL select v.VAL ANSWER from T_QUEST_DICT_VAR v WHERE v.QUEST_ID="+str(game['THIS_QUEST_ID']))
+	cur.execute("select d.ANSWER "
+					+"from T_QUEST_DICT d "
+					+"WHERE d.ID="+str(game['THIS_QUEST_ID'])
+				+" union ALL "
+				+"select v.VAL ANSWER "
+					+"from T_QUEST_DICT_VAR v "
+					+"WHERE v.QUEST_ID="+str(game['THIS_QUEST_ID']))
 	quest = cur.fetchall()
 	for ans in quest:
 		x = re.sub("[^A-ZА-ЯЇІЄ0-9]","",str(ans['ANSWER']).upper())
@@ -83,15 +130,27 @@ def userMoveCheck(con,cur,game,answer):
 		if s==1:
 			rightAnswer = ans['ANSWER']
 			break
-	cur.execute("SELECT NVL(MAX(ID),0)+1 ROW_ID FROM T_QUEST_BEEN")
+	cur.execute("SELECT NVL(MAX(ID),0)+1 ROW_ID "
+				+"FROM T_QUEST_BEEN")
 	rowId = cur.fetchall()[0]['ROW_ID']
 	if s==0:
 		mes.append("Ответ '"+answer+"' не принят.")
-		cur.execute("INSERT INTO T_QUEST_BEEN(ID,GAME_ID,QUEST_ID,ANSWER) VALUES("+str(rowId)+","+str(game['ID'])+","+str(game['THIS_QUEST_ID'])+",'"+str(answer)+"')")
+		cur.execute("INSERT INTO T_QUEST_BEEN(ID,GAME_ID,QUEST_ID,ANSWER) VALUES("
+						+str(rowId)+","
+						+str(game['ID'])+","
+						+str(game['THIS_QUEST_ID'])+","
+						+"'"+str(answer)+"')")
 	else:
 		mes.append("Ответ '"+rightAnswer+"' принят.")
-		cur.execute("INSERT INTO T_QUEST_BEEN(ID,GAME_ID,QUEST_ID,ANSWER,RESULT) VALUES("+str(rowId)+","+str(game['ID'])+","+str(game['THIS_QUEST_ID'])+",'"+str(answer)+"','Correct')")
-	cur.execute("UPDATE T_QUEST_MAIN SET LAST_ANSWER_ID='"+str(rowId)+"', MODE_CD='Exists Answer' WHERE ID="+str(game['ID']))
+		cur.execute("INSERT INTO T_QUEST_BEEN(ID,GAME_ID,QUEST_ID,ANSWER,RESULT) VALUES("
+						+str(rowId)+","
+						+str(game['ID'])+","
+						+str(game['THIS_QUEST_ID'])+","
+						+"'"+str(answer)+"','Correct')")
+	cur.execute("UPDATE T_QUEST_MAIN "+
+				+"SET LAST_ANSWER_ID='"+str(rowId)+"', "
+				+"MODE_CD='Exists Answer' "
+				+"WHERE ID="+str(game['ID']))
 	con.commit()
 	res['messages']=mes
 	res['buttons']=but
@@ -101,7 +160,9 @@ def editMode(con,cur,game,mode):
 	res = {}
 	mes = []
 	but = ["/cancel"]
-	cur.execute("UPDATE T_QUEST_MAIN SET MODE_CD='"+mode+"' WHERE ID="+str(game['ID']))
+	cur.execute("UPDATE T_QUEST_MAIN "
+				+"SET MODE_CD='"+mode+"' "
+				+"WHERE ID="+str(game['ID']))
 	con.commit()
 	if mode=="Dispute":
 		mes.append('Введите комментарий')
@@ -115,13 +176,23 @@ def getAnswer(con,cur,game):
 	res = {}
 	mes = []
 	but = ["/next","/add","/dispute","/why"]
-	cur.execute("SELECT d.ANSWER FROM T_QUEST_MAIN m, T_QUEST_DICT d WHERE m.THIS_QUEST_ID=d.ID AND m.ID="+str(game['ID']))
+	cur.execute("SELECT d.ANSWER "
+				+"FROM T_QUEST_MAIN m, T_QUEST_DICT d "
+				+"WHERE m.THIS_QUEST_ID=d.ID AND m.ID="+str(game['ID']))
 	answer = cur.fetchall()
 	mes.append(str(answer[0]["ANSWER"]))
-	cur.execute("SELECT NVL(MAX(ID),0)+1 ROW_ID FROM T_QUEST_BEEN")
+	cur.execute("SELECT NVL(MAX(ID),0)+1 ROW_ID "+
+				+"FROM T_QUEST_BEEN")
 	rowId = cur.fetchall()[0]['ROW_ID']
-	cur.execute("INSERT INTO T_QUEST_BEEN(ID,GAME_ID,QUEST_ID,ANSWER,RESULT) VALUES("+str(rowId)+","+str(game['ID'])+","+str(game['THIS_QUEST_ID'])+",'"+str(answer[0]["ANSWER"])+"','Pass')")
-	cur.execute("UPDATE T_QUEST_MAIN SET LAST_ANSWER_ID='"+str(rowId)+"' WHERE ID="+str(game['ID']))
+	cur.execute("INSERT INTO T_QUEST_BEEN(ID,GAME_ID,QUEST_ID,ANSWER,RESULT) VALUES("
+								+str(rowId)+","
+								+str(game['ID'])+","
+								+str(game['THIS_QUEST_ID'])+","
+								+"'"+str(answer[0]["ANSWER"])+"',"
+								+"'Pass')")
+	cur.execute("UPDATE T_QUEST_MAIN "
+				+"SET LAST_ANSWER_ID='"+str(rowId)+"' "
+				+"WHERE ID="+str(game['ID']))
 	con.commit()
 	res['messages']=mes
 	res['buttons']=but
@@ -131,7 +202,9 @@ def getComment(con,cur,game):
 	res = {}
 	mes = []
 	but = ["/next","/add","/dispute"]
-	cur.execute("SELECT d.ANSWER,nvl(d.COMMENTS,'Просто так') COMMENTS FROM T_QUEST_MAIN m, T_QUEST_DICT d WHERE m.THIS_QUEST_ID=d.ID AND m.ID="+str(game['ID']))
+	cur.execute("SELECT d.ANSWER,nvl(d.COMMENTS,'Просто так') COMMENTS "
+				+"FROM T_QUEST_MAIN m, T_QUEST_DICT d "
+				+"WHERE m.THIS_QUEST_ID=d.ID AND m.ID="+str(game['ID']))
 	answer = cur.fetchall()
 	for ans in answer:
 		mes.append(str(ans["COMMENTS"]))
@@ -143,7 +216,9 @@ def cancelOperation(con,cur,game):
 	res = {}
 	mes = []
 	but = ["/next","/add"]
-	cur.execute("UPDATE T_QUEST_MAIN SET MODE_CD='Default' WHERE ID="+str(game['ID']))
+	cur.execute("UPDATE T_QUEST_MAIN "
+				+"SET MODE_CD='Default' "
+				+"WHERE ID="+str(game['ID']))
 	con.commit()
 	mes.append("Вы можете выбрать следующий вопрос или добавить новый")
 	res['messages']=mes
@@ -170,7 +245,8 @@ def secondStepAddQuest(con,cur,game,text):
 	answers = text.split(', ')
 	cur.execute("SELECT NVL(MAX(ID),0)+1 ROW_ID FROM T_QUEST_DICT")
 	rowId = cur.fetchall()[0]['ROW_ID']
-	cur.execute("INSERT INTO T_QUEST_DICT(ID,QUESTION,ANSWER,CREATED_BY) VALUES("+str(rowId)+",'"+str(game['TEMP_STR'])+"','"+str(answers[0])+"',"+str(game['USER_BOT_ID'])+")")
+	cur.execute("INSERT INTO T_QUEST_DICT(ID,QUESTION,ANSWER,CREATED_BY) VALUES("
+										+str(rowId)+",'"+str(game['TEMP_STR'])+"','"+str(answers[0])+"',"+str(game['USER_BOT_ID'])+")")
 	for i in range(1,len(answers)):
 		cur.execute("INSERT INTO T_QUEST_DICT_VAR (QUEST_ID,VAL) VALUES("+str(rowId)+",'"+str(answers[i])+"')")
 	con.commit()
@@ -183,12 +259,17 @@ def disputeQuest(con,cur,game,text):
 	res = {}
 	mes = []
 	but = ["/next","/add"]
-	cur.execute("UPDATE T_QUEST_MAIN SET MODE_CD='Default' WHERE ID="+str(game['ID']))
+	cur.execute("UPDATE T_QUEST_MAIN "
+				+"SET MODE_CD='Default' "
+				+"WHERE ID="+str(game['ID']))
 	con.commit()
 	if not game['LAST_ANSWER_ID']:
-		cur.execute("INSERT INTO T_QUEST_BEEN (GAME_ID,QUEST_ID,DISPUTE_FLG,COMMENTS) VALUES ("+str(game['ID'])+","+str(game['THIS_QUEST_ID'])+",1,'"+str(text)+"')")
+		cur.execute("INSERT INTO T_QUEST_BEEN (GAME_ID,QUEST_ID,DISPUTE_FLG,COMMENTS) VALUES ("
+											+str(game['ID'])+","+str(game['THIS_QUEST_ID'])+",1,'"+str(text)+"')")
 	else:
-		cur.execute("UPDATE T_QUEST_BEEN SET DISPUTE_FLG=1,COMMENTS='"+str(text)+"' WHERE ID="+str(game['LAST_ANSWER_ID']))
+		cur.execute("UPDATE T_QUEST_BEEN "
+					+"SET DISPUTE_FLG=1,COMMENTS='"+str(text)+"' "
+					+"WHERE ID="+str(game['LAST_ANSWER_ID']))
 	con.commit()
 	mes.append("Спасибо, учту")
 	res['messages']=mes
