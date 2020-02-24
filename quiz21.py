@@ -63,7 +63,7 @@ def getGame(con,cur,userID,bot,tgUserId):
 		cur.execute("SELECT q.*,d.QUESTION "
 					+"FROM T_QUEST_MAIN q "
 					+"LEFT JOIN T_QUEST_DICT d ON q.THIS_QUEST_ID=d.ID "
-					+"WHERE q.USER_BOT_ID="+str(userID)+" AND q.STATUS_CD='Active'")
+					+"WHERE q.USER_BOT_ID="+str(userID))
 		bot.send_message(tgUserId,'Начнем')
 		game = cur.fetchall()
 	return(game[0])
@@ -71,10 +71,11 @@ def getGame(con,cur,userID,bot,tgUserId):
 def getNextQuest(con,cur,game):
 	res = {}
 	mes = []
+	add = {"type":"","val":""}
 	cur.execute("SELECT q.* FROM "
 				+"(SELECT c.*,ROW_NUMBER() over() rwn "
 					+"FROM T_QUEST_DICT c "
-					+"WHERE NOT EXISTS("
+					+"WHERE ID=ID AND NOT EXISTS("
 								+"SELECT 1 FROM T_QUEST_BEEN u "
 								+"WHERE u.GAME_ID="+str(game['ID'])+" AND QUEST_ID=c.ID AND RESULT IS NOT NULL"
 					+") order by rand()) q "
@@ -88,6 +89,8 @@ def getNextQuest(con,cur,game):
 					+"LAST_ANSWER_ID=NULL "
 					+"WHERE ID="+str(game['ID']))
 		mes.append(str(quest[0]['QUESTION']))
+		add["type"]=quest[0]['TYPE_CD']
+		add["val"]=quest[0]['ADD_FILE']
 	else:
 		cur.execute("UPDATE T_QUEST_MAIN "
 					+"SET STATUS_CD='Default', "
@@ -97,10 +100,12 @@ def getNextQuest(con,cur,game):
 					+"WHERE ID="+str(game['ID']))
 		mes.append('Вопросы закончились')
 	res['messages']=mes
+	res['add']=add
 	return (res)
 
 def userMoveCheck(con,cur,game,answer):
 	res = {}
+	add = {"type":"","val":""}
 	mes = []
 	cur.execute("select d.ANSWER "
 					+"from T_QUEST_DICT d "
@@ -150,20 +155,24 @@ def userMoveCheck(con,cur,game,answer):
 					+"STATUS_CD='PostAnswer' "
 					+"WHERE ID="+str(game['ID']))
 	res['messages']=mes
+	res['add']=add
 	return (res)
 
 def editMode(con,cur,game,new_mode,comment):
 	res = {}
+	add = {"type":"","val":""}
 	mes = []
 	cur.execute("UPDATE T_QUEST_MAIN "
 				+"SET MODE_CD='"+new_mode+"' "
 				+"WHERE ID="+str(game['ID']))
 	mes.append(comment)
 	res['messages']=mes
+	res['add']=add
 	return (res)
 
 def getAnswer(con,cur,game):
 	res = {}
+	add = {"type":"","val":""}
 	mes = []
 	cur.execute("SELECT d.ANSWER "
 				+"FROM T_QUEST_MAIN m, T_QUEST_DICT d "
@@ -184,10 +193,12 @@ def getAnswer(con,cur,game):
 				+"STATUS_CD='PostAnswer' "
 				+"WHERE ID="+str(game['ID']))
 	res['messages']=mes
+	res['add']=add
 	return (res)
 
 def getComment(con,cur,game):
 	res = {}
+	add = {"type":"","val":""}
 	mes = []
 	cur.execute("SELECT d.ANSWER,nvl(d.COMMENTS,'Просто так') COMMENTS "
 				+"FROM T_QUEST_MAIN m, T_QUEST_DICT d "
@@ -199,20 +210,24 @@ def getComment(con,cur,game):
 	cur.execute("UPDATE T_QUEST_BEEN "
 					+"SET COMM_FLG=1 "
 					+"WHERE ID="+str(game['LAST_ANSWER_ID']))
+	res['add']=add
 	return (res)
 
 def cancelOperation(con,cur,game):
 	res = {}
 	mes = []
+	add = {"type":"","val":""}
 	cur.execute("UPDATE T_QUEST_MAIN "
 				+"SET MODE_CD='Default' "
 				+"WHERE ID="+str(game['ID']))
 	mes.append("Охрана, отмена")
 	res['messages']=mes
+	res['add']=add
 	return (res)
 
 def firstStepAddQuest(con,cur,game,text):
 	res = {}
+	add = {"type":"","val":""}
 	mes = []
 	cur.execute("UPDATE T_QUEST_MAIN "
 				+"SET MODE_CD='Add Answer',"
@@ -220,29 +235,62 @@ def firstStepAddQuest(con,cur,game,text):
 				+"WHERE ID="+str(game['ID']))
 	mes.append("Введите ответ (варианты строго через запятую и пробел)")
 	res['messages']=mes
+	res['add']=add
 	return (res)
 
 def secondStepAddQuest(con,cur,game,text):
 	res = {}
+	add = {"type":"","val":""}
 	mes = []
 	cur.execute("UPDATE T_QUEST_MAIN "
-				+"SET MODE_CD ='Default',"
-				+"TEMP_STR=NULL "
+				+"SET MODE_CD='Add File',"
+				+"TEMP_STR_ANS='"+text.replace('\'','\'\'')+"' "
 				+"WHERE ID="+str(game['ID']))
-	answers = text.split(', ')
-	cur.execute("SELECT NVL(MAX(ID),0)+1 ROW_ID "
-				+"FROM T_QUEST_DICT")
-	rowId = cur.fetchall()[0]['ROW_ID']
-	cur.execute("INSERT INTO T_QUEST_DICT(ID,QUESTION,ANSWER,CREATED_BY) VALUES("
-										+str(rowId)+",'"+str(game['TEMP_STR'])+"','"+str(answers[0])+"',"+str(game['USER_BOT_ID'])+")")
-	for i in range(1,len(answers)):
-		cur.execute("INSERT INTO T_QUEST_DICT_VAR (QUEST_ID,VAL) VALUES("+str(rowId)+",'"+str(answers[i])+"')")
-	mes.append("Спасибо, [Name]. Вопрос добавлен")
+	mes.append("Добавьте картинку или аудио")
 	res['messages']=mes
+	res['add']=add
+	return (res)
+
+def thirdStepAddQuest(con,cur,game,file_type,text,size):
+	res = {}
+	add = {"type":"","val":""}
+	mes = []
+	if size<2**24:
+		file_text = "NULL" if file_type=="text" else text
+		answers = game['TEMP_STR_ANS'].split(', ')
+		cur.execute("SELECT NVL(MAX(ID),0)+1 ROW_ID "
+					+"FROM T_QUEST_DICT")
+		rowId = cur.fetchall()[0]['ROW_ID']
+		sql_insert_query = """ INSERT INTO T_QUEST_DICT
+								(ID,QUESTION,ANSWER,CREATED_BY,TYPE_CD,ADD_FILE) 
+								VALUES(%s,%s,%s,%s,%s,%s)"""
+		insert_tuple = (rowId, game['TEMP_STR'], answers[0], game['USER_BOT_ID'], file_type, file_text)
+		cur.execute(sql_insert_query,insert_tuple)
+		#cur.execute("INSERT INTO T_QUEST_DICT(ID,QUESTION,ANSWER,CREATED_BY,TYPE_CD,ADD_FILE) VALUES("
+		#									+str(rowId)+",'"
+		#									+str(game['TEMP_STR'])+"',"
+		#									+"'"+str(answers[0])+"',"
+		#									+str(game['USER_BOT_ID'])+","
+		#									+"'"+str(file_type)+"',"
+		#									+"'"+str(file_text)+"')")
+		for i in range(1,len(answers)):
+			cur.execute("INSERT INTO T_QUEST_DICT_VAR (QUEST_ID,VAL) VALUES("+str(rowId)+",'"+str(answers[i])+"')")
+		cur.execute("UPDATE T_QUEST_MAIN "
+					+"SET MODE_CD ='Default',"
+					+"TEMP_STR=NULL, "
+					+"TEMP_STR_ANS=NULL "
+					+"WHERE ID="+str(game['ID']))
+		mes.append("Спасибо, [Name]. Вопрос добавлен")
+	else:
+		mes.append("[Name], файл не должен превышать 16mb. Размер вашего файла: "+str(size/1024/1024))
+	res['messages']=mes
+	res['add']=add
+
 	return (res)
 
 def disputeQuest(con,cur,game,text):
 	res = {}
+	add = {"type":"","val":""}
 	mes = []
 	if not game['LAST_ANSWER_ID']:
 		cur.execute("INSERT INTO T_QUEST_BEEN (GAME_ID,QUEST_ID,COMMENTS) VALUES ("
@@ -253,10 +301,12 @@ def disputeQuest(con,cur,game,text):
 					+"WHERE ID="+str(game['LAST_ANSWER_ID']))
 	mes.append("Спасибо за отзыв, Ваше мнение очень важно для меня. Вы можете выбрать следующий вопрос или добавить новый")
 	res['messages']=mes
+	res['add']=add
 	return (res)
 
 def rateQuest(con,cur,game,text):
 	res = {}
+	add = {"type":"","val":""}
 	mes = []
 	if not re.search('^[1-5]$', str(text)):
 		mes.append("Обнаружены неверные символы. Прошу ввести оценка от 1 до 5")
@@ -269,13 +319,16 @@ def rateQuest(con,cur,game,text):
 					+"WHERE ID="+str(game['LAST_ANSWER_ID']))
 		mes.append("Спасибо за отзыв. Вы можете выбрать следующий вопрос или добавить новый")
 	res['messages']=mes
+	res['add']=add
 	return (res)
 
-def defaultFunc():
+def defaultFunc(con,cur,game):
 	res = {}
+	add = {"type":"","val":""}
 	mes = []
 	mes.append("Вы можете выбрать следующий вопрос или добавить новый")
 	res['messages']=mes
+	res['add']=add
 	return (res)
 
 def main(bot,type,message):
@@ -290,10 +343,22 @@ def main(bot,type,message):
 					tgId = 394246173
 					bot = 'bot'
 					messageText = message
+					messageFile = message
 				else:
 					userID = getUser(con,cur,bot,message)
 					tgId=message.from_user.id
 					messageText = message.text
+					file_size = 0
+					if type=="photo":
+						raw = message.photo[0].file_id
+						file_size = message.photo[0].file_size
+						file_info = bot.get_file(raw)
+						messageFile = bot.download_file(file_info.file_path)
+					elif type=="audio":
+						raw = message.audio[0].file_id
+						file_size = message.audio[0].file_size
+						file_info = bot.get_file(raw)
+						messageFile = bot.download_file(file_info.file_path)
 				if userID>=0:
 					game = getGame(con,cur,userID,bot,tgId)
 					func = {
@@ -310,6 +375,12 @@ def main(bot,type,message):
 							"Add Answer":{#режим добавления ответа
 								"cancel":"cancelOperation(con,cur,game)",#отменить
 								"default":"secondStepAddQuest(con,cur,game,messageText)"#ввод нового ответа
+							},
+							"Add File":{#режим добавления файл
+								"cancel":"cancelOperation(con,cur,game)",#отменить
+								"audio":"thirdStepAddQuest(con,cur,game,'Music',messageFile,file_size)",
+								"photo":"thirdStepAddQuest(con,cur,game,'Image',messageFile,file_size)",
+								"default":"thirdStepAddQuest(con,cur,game,'Text',messageText,0)"
 							}
 						},
 						"PreAnswer":{
@@ -326,6 +397,12 @@ def main(bot,type,message):
 							"Add Answer":{#режим добавления ответа
 								"cancel":"cancelOperation(con,cur,game)",#отменить
 								"default":"secondStepAddQuest(con,cur,game,messageText)"#ввод нового ответа
+							},
+							"Add File":{#режим добавления ответа
+								"cancel":"cancelOperation(con,cur,game)",#отменить
+								"audio":"thirdStepAddQuest(con,cur,game,'Music',messageFile,file_size)",
+								"photo":"thirdStepAddQuest(con,cur,game,'Image',messageFile,file_size)",
+								"default":"thirdStepAddQuest(con,cur,game,'Text',messageText,0)"
 							}
 						},
 						"Answer":{
@@ -342,6 +419,12 @@ def main(bot,type,message):
 							"Add Answer":{#режим добавления ответа
 								"cancel":"cancelOperation(con,cur,game)",#отменить
 								"default":"secondStepAddQuest(con,cur,game,messageText)"#ввод нового ответа
+							},
+							"Add File":{#режим добавления ответа
+								"cancel":"cancelOperation(con,cur,game)",#отменить
+								"audio":"thirdStepAddQuest(con,cur,game,'Music',messageFile,file_size)",
+								"photo":"thirdStepAddQuest(con,cur,game,'Image',messageFile,file_size)",
+								"default":"thirdStepAddQuest(con,cur,game,'Text',messageText,0)"
 							}
 						},
 						"PostAnswer":{
@@ -363,6 +446,12 @@ def main(bot,type,message):
 							"Rate":{#режим добавления ответа
 								"cancel":"cancelOperation(con,cur,game)",#отменить
 								"default":"rateQuest(con,cur,game,messageText)"#оценка вопроса
+							},
+							"Add File":{#режим добавления ответа
+								"cancel":"cancelOperation(con,cur,game)",#отменить
+								"audio":"thirdStepAddQuest(con,cur,game,'Music',messageFile,file_size)",
+								"photo":"thirdStepAddQuest(con,cur,game,'Image',messageFile,file_size)",
+								"default":"thirdStepAddQuest(con,cur,game,'Text',messageText,0)"
 							}
 						}
 					}
@@ -372,17 +461,18 @@ def main(bot,type,message):
 					except Exception as f:
 						print(game['STATUS_CD'],game['MODE_CD'],type)
 					if len(x)==0:
-						result = defaultFunc()
+						result = defaultFunc(con,cur,game)
 					else:
 						result = eval(func[game['STATUS_CD']][game['MODE_CD']][type])
 					markup = types.ReplyKeyboardMarkup(row_width=5, resize_keyboard=True)
 					cur.execute("SELECT c.*,b.COMM_FLG,b.RATE "
-								+"from T_QUEST_CONFIG c, T_QUEST_MAIN m "
-								+"LEFT JOIN T_QUEST_BEEN b ON b.ID=m.LAST_ANSWER_ID "
-								+"where m.ID="+str(game['ID'])
-								+" AND c.MODE=m.MODE_CD"
-								+" AND c.STATE=m.STATUS_CD")
-					buttons = cur.fetchall()
+									+"from T_QUEST_CONFIG c, T_QUEST_MAIN m "
+									+"LEFT JOIN T_QUEST_BEEN b ON b.ID=m.LAST_ANSWER_ID "
+									+"where m.ID="+str(game['ID'])+" "
+									+"AND c.MODE=m.MODE_CD "
+									+"AND c.STATE=m.STATUS_CD "
+									+"ORDER BY c.ORDER_BY")
+					buttons = cur.fetchall()	
 					for button in buttons:
 						if button['COMMAND']=='/rate' and button['RATE']:
 							pass
@@ -396,6 +486,8 @@ def main(bot,type,message):
 							print(mess)
 						else:
 							bot.send_message(message.from_user.id, mess.replace('[Name]',str(message.from_user.first_name)), reply_markup=markup)
+					if result['add']['type']=='Image':
+							bot.send_photo(message.from_user.id,result['add']['val'])
 				con.commit()
 			except Exception as e:
 				if mode == 'debug':
@@ -421,6 +513,12 @@ if mode == 'debug':
 else:
 	try:
 		bot = telebot.TeleBot("959911904:AAHlPuS8mMdsqQrMmdIG0h5Y9COtyFbCpfs")
+		@bot.message_handler(content_types=['audio'])
+		def handle_docs_file(message):
+			main(bot,'audio',message)
+		@bot.message_handler(content_types=['photo'])
+		def handle_docs_file(message):
+			main(bot,'photo',message)
 		@bot.message_handler(content_types=['text'])
 		def get_text_messages(message):
 			if message.text =='*Следующий вопрос*':
