@@ -74,7 +74,7 @@ def getNextQuest(con,cur,game):
 	add = {"type":"","val":""}
 	cur.execute("SELECT q.* FROM "
 				+"(SELECT c.*,ROW_NUMBER() over() rwn "
-					+"FROM T_QUEST_DICT c "
+					+"FROM V_QUEST_NEXT_DICT c "
 					+"WHERE ID=ID AND NOT EXISTS("
 								+"SELECT 1 FROM T_QUEST_BEEN u "
 								+"WHERE u.GAME_ID="+str(game['ID'])+" AND QUEST_ID=c.ID AND RESULT IS NOT NULL"
@@ -233,7 +233,7 @@ def firstStepAddQuest(con,cur,game,text):
 				+"SET MODE_CD='Add Answer',"
 				+"TEMP_STR='"+text.replace('\'','\'\'')+"' "
 				+"WHERE ID="+str(game['ID']))
-	mes.append("Введите ответ (варианты строго через запятую и пробел)")
+	mes.append("Введите ответ (варианты строго через точку с запятой и пробел)")
 	res['messages']=mes
 	res['add']=add
 	return (res)
@@ -257,7 +257,7 @@ def thirdStepAddQuest(con,cur,game,file_type,text,size):
 	mes = []
 	if size<2**24:
 		file_text = "NULL" if file_type=="text" else text
-		answers = game['TEMP_STR_ANS'].split(', ')
+		answers = game['TEMP_STR_ANS'].split('; ')
 		cur.execute("SELECT NVL(MAX(ID),0)+1 ROW_ID "
 					+"FROM T_QUEST_DICT")
 		rowId = cur.fetchall()[0]['ROW_ID']
@@ -296,9 +296,11 @@ def disputeQuest(con,cur,game,text):
 		cur.execute("INSERT INTO T_QUEST_BEEN (GAME_ID,QUEST_ID,COMMENTS) VALUES ("
 											+str(game['ID'])+","+str(game['THIS_QUEST_ID'])+",'"+str(text)+"')")
 	else:
-		cur.execute("UPDATE T_QUEST_BEEN "
-					+"SET COMMENTS='"+str(text)+"' "
-					+"WHERE ID="+str(game['LAST_ANSWER_ID']))
+		sql_query = """UPDATE T_QUEST_BEEN
+					SET COMMENTS=case when COMMENTS is null then %s else concat(comments,'; ',%s) end
+					WHERE ID=%s """
+		qsl_tuple = (text,text,game['LAST_ANSWER_ID'])
+		cur.execute(sql_query,qsl_tuple)
 	mes.append("Спасибо за отзыв, Ваше мнение очень важно для меня. Вы можете выбрать следующий вопрос или добавить новый")
 	res['messages']=mes
 	res['add']=add
@@ -464,7 +466,7 @@ def main(bot,type,message):
 						result = defaultFunc(con,cur,game)
 					else:
 						result = eval(func[game['STATUS_CD']][game['MODE_CD']][type])
-					markup = types.ReplyKeyboardMarkup(row_width=5, resize_keyboard=True)
+					markup = types.ReplyKeyboardMarkup(row_width=2, resize_keyboard=True)
 					cur.execute("SELECT c.*,b.COMM_FLG,b.RATE "
 									+"from T_QUEST_CONFIG c, T_QUEST_MAIN m "
 									+"LEFT JOIN T_QUEST_BEEN b ON b.ID=m.LAST_ANSWER_ID "
@@ -472,7 +474,8 @@ def main(bot,type,message):
 									+"AND c.MODE=m.MODE_CD "
 									+"AND c.STATE=m.STATUS_CD "
 									+"ORDER BY c.ORDER_BY")
-					buttons = cur.fetchall()	
+					buttons = cur.fetchall()
+					btn = []
 					for button in buttons:
 						if button['COMMAND']=='/rate' and button['RATE']:
 							pass
@@ -480,7 +483,15 @@ def main(bot,type,message):
 							pass
 						else:
 							itembtn = types.KeyboardButton(text=button['BUTTON_NAME'])
-							markup.add(itembtn)
+							btn.append(itembtn.to_dic())
+					row = []
+					for i in range(0,len(btn)):
+						row.append(btn[i])
+						if i%2==1:
+							markup.keyboard.append(row)
+							row=[]
+					if len(btn)%2==1:
+						markup.add(itembtn)
 					for mess in result['messages']:
 						if mode == 'debug':
 							print(mess)
