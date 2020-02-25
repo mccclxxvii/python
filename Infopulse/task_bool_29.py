@@ -1,0 +1,7 @@
+x = int(input("введите X"))
+y = int(input("введите Y"))
+x1 = int(input("введите X1"))
+y1 = int(input("введите Y1"))
+x2 = int(input("введите X2"))
+y2 = int(input("введите Y2"))
+print ('Истина' if x1<=x<=x2 and y2<=y<=y1 else 'Ложь')
