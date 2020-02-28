@@ -417,7 +417,6 @@ def main(bot,type,message):
 					messageFile = bot.download_file(file_info.file_path)
 				if userID>=0:
 					game = getGame(cur,userID,bot,tgId)
-					print(game['STATUS_CD'],game['MODE_CD'],type)
 					func = {
 						"Default":{
 							"Default":{
@@ -542,7 +541,6 @@ def main(bot,type,message):
 							row=[]
 					if len(btn)%2==1:
 						markup.add(itembtn)
-					print(result['messages'])
 					for mess in result['messages']:
 						bot.send_message(message.from_user.id, mess.replace('[Name]',str(message.from_user.first_name)), reply_markup=markup)
 					if result['add']['type']=='Image':
