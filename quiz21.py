@@ -7,7 +7,7 @@ from telebot import types
 from difflib import SequenceMatcher
 import sys
 
-def getUser(con,cur,bot,message):
+def getUser(cur,bot,message):
 	userID = -1
 	cur.execute("SELECT ID,FIRST_NAME "
 				+"FROM T_USER "
@@ -51,7 +51,7 @@ def getUser(con,cur,bot,message):
 		userID = user[0]['ID']
 	return(userID)
 	
-def getGame(con,cur,userID,bot,tgUserId):
+def getGame(cur,userID,bot,tgUserId):
 	cur.execute("SELECT q.*,d.QUESTION "
 				+"FROM T_QUEST_MAIN q "
 				+"LEFT JOIN T_QUEST_DICT d ON q.THIS_QUEST_ID=d.ID "
@@ -68,7 +68,7 @@ def getGame(con,cur,userID,bot,tgUserId):
 		game = cur.fetchall()
 	return(game[0])
 
-def getNextQuest(con,cur,game):
+def getNextQuest(cur,game):
 	res = {}
 	mes = []
 	but = []
@@ -105,7 +105,7 @@ def getNextQuest(con,cur,game):
 	res['but']=but
 	return (res)
 
-def userMoveCheck(con,cur,game,answer):
+def userMoveCheck(cur,game,answer):
 	res = {}
 	add = {"type":"","val":""}
 	mes = []
@@ -162,7 +162,7 @@ def userMoveCheck(con,cur,game,answer):
 	res['but']=but
 	return (res)
 
-def editMode(con,cur,game,new_mode,comment):
+def editMode(cur,game,new_mode,comment):
 	res = {}
 	add = {"type":"","val":""}
 	mes = []
@@ -180,7 +180,7 @@ def editMode(con,cur,game,new_mode,comment):
 	res['but']=but
 	return (res)
 
-def getAnswer(con,cur,game):
+def getAnswer(cur,game):
 	res = {}
 	add = {"type":"","val":""}
 	mes = []
@@ -208,7 +208,7 @@ def getAnswer(con,cur,game):
 	res['but']=but
 	return (res)
 
-def getComment(con,cur,game):
+def getComment(cur,game):
 	res = {}
 	add = {"type":"","val":""}
 	mes = []
@@ -227,7 +227,7 @@ def getComment(con,cur,game):
 	res['but']=but
 	return (res)
 
-def cancelOperation(con,cur,game):
+def cancelOperation(cur,game):
 	res = {}
 	mes = []
 	but = []
@@ -241,7 +241,7 @@ def cancelOperation(con,cur,game):
 	res['but']=but
 	return (res)
 
-def firstStepAddQuest(con,cur,game,text):
+def firstStepAddQuest(cur,game,text):
 	res = {}
 	add = {"type":"","val":""}
 	mes = []
@@ -256,7 +256,7 @@ def firstStepAddQuest(con,cur,game,text):
 	res['but']=but
 	return (res)
 
-def secondStepAddQuest(con,cur,game,text):
+def secondStepAddQuest(cur,game,text):
 	res = {}
 	add = {"type":"","val":""}
 	mes = []
@@ -271,7 +271,7 @@ def secondStepAddQuest(con,cur,game,text):
 	res['but']=but
 	return (res)
 
-def thirdStepAddQuest(con,cur,game,file_type,text,size):
+def thirdStepAddQuest(cur,game,file_type,text,size):
 	res = {}
 	add = {"type":"","val":""}
 	mes = []
@@ -310,27 +310,35 @@ def thirdStepAddQuest(con,cur,game,file_type,text,size):
 
 	return (res)
 
-def disputeQuest(con,cur,game,text):
+def disputeQuest(cur,game,text):
 	res = {}
 	add = {"type":"","val":""}
 	mes = []
 	but = []
 	if not game['LAST_ANSWER_ID']:
-		cur.execute("INSERT INTO T_QUEST_BEEN (GAME_ID,QUEST_ID,COMMENTS) VALUES ("
-											+str(game['ID'])+","+str(game['THIS_QUEST_ID'])+",'"+str(text)+"')")
+		cur.execute("SELECT NVL(MAX(ID),0)+1 ROW_ID "
+					+"FROM T_QUEST_BEEN")
+		rowId = cur.fetchall()[0]['ROW_ID']
+		sql_query = """INSERT INTO T_QUEST_BEEN (ID,GAME_ID,QUEST_ID,COMMENTS) VALUES (%s,%s,%s,%s)"""
+		qsl_tuple = (rowId,game['ID'],game['THIS_QUEST_ID'],text)
+		cur.execute(sql_query,qsl_tuple)
 	else:
+		rowId = game['LAST_ANSWER_ID']
 		sql_query = """UPDATE T_QUEST_BEEN
 					SET COMMENTS=case when COMMENTS is null then %s else concat(comments,'; ',%s) end
 					WHERE ID=%s """
 		qsl_tuple = (text,text,game['LAST_ANSWER_ID'])
 		cur.execute(sql_query,qsl_tuple)
+	sql_query = """UPDATE T_QUEST_MAIN SET MODE_CD=%s, LAST_ANSWER_ID=%s WHERE ID=%s"""
+	qsl_tuple = ('Default',rowId,game['ID'])
+	cur.execute(sql_query,qsl_tuple)
 	mes.append("Спасибо за отзыв, Ваше мнение очень важно для меня. Вы можете выбрать следующий вопрос или добавить новый")
 	res['messages']=mes
 	res['add']=add
 	res['but']=but
 	return (res)
 
-def rateQuest(con,cur,game,text):
+def rateQuest(cur,game,text):
 	res = {}
 	add = {"type":"","val":""}
 	mes = []
@@ -350,12 +358,37 @@ def rateQuest(con,cur,game,text):
 	res['but']=but
 	return (res)
 
-def defaultFunc(con,cur,game):
+def defaultFunc(cur,game):
 	res = {}
 	add = {"type":"","val":""}
 	mes = []
 	but = []
 	mes.append("Вы можете выбрать следующий вопрос или добавить новый")
+	cur.execute("UPDATE T_QUEST_MAIN "
+				+"SET MODE_CD ='Default',"
+				+"TEMP_STR=NULL, "
+				+"TEMP_STR_ANS=NULL "
+				+"WHERE ID="+str(game['ID']))
+	res['messages']=mes
+	res['add']=add
+	res['but']=but
+	return (res)
+
+def markToDelete(cur,game):
+	res = {}
+	add = {"type":"","val":""}
+	mes = []
+	but = []
+	if not game['LAST_ANSWER_ID']:
+		cur.execute("INSERT INTO T_QUEST_BEEN (GAME_ID,QUEST_ID,MARK_TO_DEL) VALUES ("
+											+str(game['ID'])+","+str(game['THIS_QUEST_ID'])+",1)")
+	else:
+		sql_query = """UPDATE T_QUEST_BEEN
+					SET MARK_TO_DEL=1
+					WHERE ID=%s """
+		qsl_tuple = (game['LAST_ANSWER_ID'])
+		cur.execute(sql_query,qsl_tuple)
+	mes.append("Спасибо, учту")
 	res['messages']=mes
 	res['add']=add
 	res['but']=but
@@ -368,7 +401,7 @@ def main(bot,type,message):
 			con = pymysql.connect(host='176.36.217.49',port=3307,user='TELEGRAM_BOT',password='!1qaZXsw2@',db='NasDB',charset='utf8mb4',cursorclass=pymysql.cursors.DictCursor)
 			cur = con.cursor()
 			try:
-				userID = getUser(con,cur,bot,message)
+				userID = getUser(cur,bot,message)
 				tgId=message.from_user.id
 				messageText = message.text
 				file_size = 0
@@ -383,76 +416,89 @@ def main(bot,type,message):
 					file_info = bot.get_file(raw)
 					messageFile = bot.download_file(file_info.file_path)
 				if userID>=0:
-					game = getGame(con,cur,userID,bot,tgId)
+					game = getGame(cur,userID,bot,tgId)
+					print(game['STATUS_CD'],game['MODE_CD'],type)
 					func = {
 						"Default":{
 							"Default":{
-								"next":"getNextQuest(con,cur,game)",#перейти к следующему вопросу
-								"add":"editMode(con,cur,game,'Add Question','Введите вопрос')",#добавить новый вопрос
-								"default":"defaultFunc()"#игнорировать
+								"next":"getNextQuest(cur,game)",#перейти к следующему вопросу
+								"add":"editMode(cur,game,'Add Question','Введите вопрос')",#добавить новый вопрос
+								"default":"defaultFunc(cur,game)"#игнорировать
 							},
 							"Add Question":{#режим добавления вопроса
-								"cancel":"cancelOperation(con,cur,game)",#отменить
-								"default":"firstStepAddQuest(con,cur,game,messageText)"#ввод нового вопроса
+								"cancel":"cancelOperation(cur,game)",#отменить
+								"default":"firstStepAddQuest(cur,game,messageText)"#ввод нового вопроса
 							},
 							"Add Answer":{#режим добавления ответа
-								"cancel":"cancelOperation(con,cur,game)",#отменить
-								"default":"secondStepAddQuest(con,cur,game,messageText)"#ввод нового ответа
+								"cancel":"cancelOperation(cur,game)",#отменить
+								"default":"secondStepAddQuest(cur,game,messageText)"#ввод нового ответа
 							},
 							"Add File":{#режим добавления файл
-								"cancel":"cancelOperation(con,cur,game)",#отменить
-								"audio":"thirdStepAddQuest(con,cur,game,'Music',messageFile,file_size)",
-								"photo":"thirdStepAddQuest(con,cur,game,'Image',messageFile,file_size)",
-								"default":"thirdStepAddQuest(con,cur,game,'Text',messageText,0)"
+								"cancel":"cancelOperation(cur,game)",#отменить
+								"audio":"thirdStepAddQuest(cur,game,'Music',messageFile,file_size)",
+								"photo":"thirdStepAddQuest(cur,game,'Image',messageFile,file_size)",
+								"default":"thirdStepAddQuest(cur,game,'Text',messageText,0)"
 							}
 						},
 						"PreAnswer":{
 							"Default":{
-								"next":"getNextQuest(con,cur,game)",#перейти к следующему вопросу
-								"add":"editMode(con,cur,game,'Add Question','Введите вопрос')",#добавить новый вопрос
-								"get":"getAnswer(con,cur,game)",#узнать ответ
-								"default":"userMoveCheck(con,cur,game,messageText)"#проверить
+								"next":"getNextQuest(cur,game)",#перейти к следующему вопросу
+								"add":"editMode(cur,game,'Add Question','Введите вопрос')",#добавить новый вопрос
+								"get":"getAnswer(cur,game)",#узнать ответ
+								"dispute":"editMode(cur,game,'Dispute','Введите комментарий')",
+								"remind":"{'messages':[game['QUESTION']],'add':{'type':'','val':''},'but':[]}",
+								"default":"userMoveCheck(cur,game,messageText)"#проверить
+							},
+							"Dispute":{#режим добавления ответа
+								"cancel":"cancelOperation(cur,game)",#отменить
+								"default":"disputeQuest(cur,game,messageText)"#комментировать вопрос
 							},
 							"Add Question":{#режим добавления вопроса
-								"cancel":"cancelOperation(con,cur,game)",#отменить
-								"default":"firstStepAddQuest(con,cur,game,messageText)"#ввод нового вопроса
+								"cancel":"cancelOperation(cur,game)",#отменить
+								"default":"firstStepAddQuest(cur,game,messageText)"#ввод нового вопроса
 							},
 							"Add Answer":{#режим добавления ответа
-								"cancel":"cancelOperation(con,cur,game)",#отменить
-								"default":"secondStepAddQuest(con,cur,game,messageText)"#ввод нового ответа
+								"cancel":"cancelOperation(cur,game)",#отменить
+								"default":"secondStepAddQuest(cur,game,messageText)"#ввод нового ответа
 							},
 							"Add File":{#режим добавления ответа
-								"cancel":"cancelOperation(con,cur,game)",#отменить
-								"audio":"thirdStepAddQuest(con,cur,game,'Music',messageFile,file_size)",
-								"photo":"thirdStepAddQuest(con,cur,game,'Image',messageFile,file_size)",
-								"default":"thirdStepAddQuest(con,cur,game,'Text',messageText,0)"
+								"cancel":"cancelOperation(cur,game)",#отменить
+								"audio":"thirdStepAddQuest(cur,game,'Music',messageFile,file_size)",
+								"photo":"thirdStepAddQuest(cur,game,'Image',messageFile,file_size)",
+								"default":"thirdStepAddQuest(cur,game,'Text',messageText,0)"
 							}
 						},
 						"PostAnswer":{
 							"Default":{
-								"next":"getNextQuest(con,cur,game)",#перейти к следующему вопросу
-								"add":"editMode(con,cur,game,'Add Question','Введите вопрос')",#добавить новый вопрос
-								"why":"getComment(con,cur,game)",#почему?
-								"rate":"editMode(con,cur,game,'Rate','Оцените вопрос от 1 до 5')",
-								"default":"disputeQuest(con,cur,game,messageText)"#комментировать вопрос
+								"next":"getNextQuest(cur,game)",#перейти к следующему вопросу
+								"add":"editMode(cur,game,'Add Question','Введите вопрос')",#добавить новый вопрос
+								"why":"getComment(cur,game)",#почему?
+								"rate":"editMode(cur,game,'Rate','Оцените вопрос от 1 до 5')",
+								"del":"markToDelete(cur,game)",
+								"dispute":"editMode(cur,game,'Dispute','Введите комментарий')",
+								"default":"disputeQuest(cur,game,messageText)"#комментировать вопрос
+							},
+							"Dispute":{#режим добавления ответа
+								"cancel":"cancelOperation(cur,game)",#отменить
+								"default":"disputeQuest(cur,game,messageText)"#комментировать вопрос
 							},
 							"Add Question":{#режим добавления вопроса
-								"cancel":"cancelOperation(con,cur,game)",#отменить
-								"default":"firstStepAddQuest(con,cur,game,messageText)"#ввод нового вопроса
+								"cancel":"cancelOperation(cur,game)",#отменить
+								"default":"firstStepAddQuest(cur,game,messageText)"#ввод нового вопроса
 							},
 							"Add Answer":{#режим добавления ответа
-								"cancel":"cancelOperation(con,cur,game)",#отменить
-								"default":"secondStepAddQuest(con,cur,game,messageText)"#ввод нового ответа
+								"cancel":"cancelOperation(cur,game)",#отменить
+								"default":"secondStepAddQuest(cur,game,messageText)"#ввод нового ответа
 							},
 							"Rate":{#режим добавления ответа
-								"cancel":"cancelOperation(con,cur,game)",#отменить
-								"default":"rateQuest(con,cur,game,messageText)"#оценка вопроса
+								"cancel":"cancelOperation(cur,game)",#отменить
+								"default":"rateQuest(cur,game,messageText)"#оценка вопроса
 							},
 							"Add File":{#режим добавления ответа
-								"cancel":"cancelOperation(con,cur,game)",#отменить
-								"audio":"thirdStepAddQuest(con,cur,game,'Music',messageFile,file_size)",
-								"photo":"thirdStepAddQuest(con,cur,game,'Image',messageFile,file_size)",
-								"default":"thirdStepAddQuest(con,cur,game,'Text',messageText,0)"
+								"cancel":"cancelOperation(cur,game)",#отменить
+								"audio":"thirdStepAddQuest(cur,game,'Music',messageFile,file_size)",
+								"photo":"thirdStepAddQuest(cur,game,'Image',messageFile,file_size)",
+								"default":"thirdStepAddQuest(cur,game,'Text',messageText,0)"
 							}
 						}
 					}
@@ -463,13 +509,13 @@ def main(bot,type,message):
 					except Exception as f:
 						print(game['STATUS_CD'],game['MODE_CD'],type)
 					if len(x)==0:
-						result = defaultFunc(con,cur,game)
+						result = defaultFunc(cur,game)
 					else:
 						result = eval(func[game['STATUS_CD']][game['MODE_CD']][type])
 					markup = types.ReplyKeyboardMarkup(row_width=2, resize_keyboard=True)
 					if len(result['but'])>0:
 						markup.keyboard.append(result['but'])
-					cur.execute("SELECT c.*,b.COMM_FLG,b.RATE "
+					cur.execute("SELECT c.*,b.COMM_FLG,b.RATE,b.MARK_TO_DEL "
 									+"from T_QUEST_CONFIG c, T_QUEST_MAIN m "
 									+"LEFT JOIN T_QUEST_BEEN b ON b.ID=m.LAST_ANSWER_ID "
 									+"where m.ID="+str(game['ID'])+" "
@@ -483,6 +529,8 @@ def main(bot,type,message):
 							pass
 						elif button['COMMAND']=='/why' and button['COMM_FLG']==1:
 							pass
+						elif button['COMMAND']=='/del' and button['MARK_TO_DEL']==1:
+							pass
 						else:
 							itembtn = types.KeyboardButton(text=button['BUTTON_NAME'])
 							btn.append(itembtn.to_dic())
@@ -494,10 +542,11 @@ def main(bot,type,message):
 							row=[]
 					if len(btn)%2==1:
 						markup.add(itembtn)
+					print(result['messages'])
 					for mess in result['messages']:
 						bot.send_message(message.from_user.id, mess.replace('[Name]',str(message.from_user.first_name)), reply_markup=markup)
 					if result['add']['type']=='Image':
-							bot.send_photo(message.from_user.id,result['add']['val'])
+						bot.send_photo(message.from_user.id,result['add']['val'])
 				con.commit()
 			except Exception as e:
 				bot.send_message(message.from_user.id,"Ошибка:"+str(e))
@@ -521,7 +570,6 @@ try:
 		bot = telebot.TeleBot("966106908:AAExfZn2rbdcJxyIUDmDUWF31JO7VWkj7NE")
 	else:
 		bot = telebot.TeleBot("959911904:AAHlPuS8mMdsqQrMmdIG0h5Y9COtyFbCpfs")
-	bot = telebot.TeleBot("966106908:AAExfZn2rbdcJxyIUDmDUWF31JO7VWkj7NE")
 	@bot.message_handler(content_types=['audio'])
 	def handle_docs_file(message):
 		main(bot,'audio',message)
@@ -542,6 +590,12 @@ try:
 			main(bot,'cancel',message)
 		elif message.text =='Узнать oтвет':
 			main(bot,'get',message)
+		elif message.text =='Удалить вопрoс':
+			main(bot,'del',message)
+		elif message.text =='Пожалoваться':
+			main(bot,'dispute',message)
+		elif message.text =='Напомнить вопрoс':
+			main(bot,'remind',message)
 		else:
 			main(bot,'default',message)
 	bot.polling(none_stop=False, interval=1)
