@@ -403,7 +403,6 @@ def setSearchSpec(cur,game,type,text):
 	else:
 		text = text.replace(",","','")
 	mes.append("Фильтр для вопросов изменен")
-	print (text)
 	if type == "add":
 		cur.execute("UPDATE T_QUEST_MAIN SET MODE_CD ='Default',SEARCH_SPEC=concat(SEARCH_SPEC,' AND ','"+text.replace('\'','\'\'')+"') WHERE ID="+str(game['ID']))
 	else:
