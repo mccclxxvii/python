@@ -6,6 +6,7 @@ import pymysql.cursors
 from telebot import types
 from difflib import SequenceMatcher
 import sys
+from random import shuffle
 
 def getUser(cur,bot,message):
 	userID = -1
@@ -52,7 +53,7 @@ def getUser(cur,bot,message):
 	return(userID)
 	
 def getGame(cur,userID,bot,tgUserId):
-	cur.execute("SELECT q.*,d.QUESTION "
+	cur.execute("SELECT q.*,d.QUESTION, d.TYPE_CD "
 				+"FROM T_QUEST_MAIN q "
 				+"LEFT JOIN T_QUEST_DICT d ON q.THIS_QUEST_ID=d.ID "
 				+"WHERE q.USER_BOT_ID="+str(userID))
@@ -60,7 +61,7 @@ def getGame(cur,userID,bot,tgUserId):
 	if len(game)==0:
 		cur.execute("INSERT INTO T_QUEST_MAIN(USER_BOT_ID) "
 					+"values("+str(userID)+")")
-		cur.execute("SELECT q.*,d.QUESTION "
+		cur.execute("SELECT q.*,d.QUESTION, d.TYPE_CD "
 					+"FROM T_QUEST_MAIN q "
 					+"LEFT JOIN T_QUEST_DICT d ON q.THIS_QUEST_ID=d.ID "
 					+"WHERE q.USER_BOT_ID="+str(userID))
@@ -93,9 +94,18 @@ def getNextQuest(cur,game):
 					+"STATUS_CD='PreAnswer', "
 					+"LAST_ANSWER_ID=NULL "
 					+"WHERE ID="+str(game['ID']))
-		mes.append(str(quest[0]['QUESTION']))
 		add["type"]=quest[0]['TYPE_CD']
-		add["val"]=quest[0]['ADD_FILE']
+		
+		if quest[0]['TYPE_CD']=="С вариантами ответов":
+			mes.append(str(quest[0]['QUESTION']).split('|||')[0])
+			arr = str(quest[0]['QUESTION']).split('|||')[1].split(';')
+			shuffle(arr)
+			for ar in arr:
+				item = types.KeyboardButton(text=str(ar))
+				but.append(item.to_dic())
+		else:
+			mes.append(str(quest[0]['QUESTION']))
+			add["val"]=quest[0]['ADD_FILE']
 	else:
 		cur.execute("UPDATE T_QUEST_MAIN "
 					+"SET STATUS_CD='Default', "
@@ -150,6 +160,12 @@ def userMoveCheck(cur,game,answer):
 						+"SET LAST_ANSWER_ID='"+str(rowId)+"', "
 						+"STATUS_CD='PreAnswer' "
 						+"WHERE ID="+str(game['ID']))
+		if game['TYPE_CD']=="С вариантами ответов":
+			arr = str(game['QUESTION']).split('|||')[1].split(';')
+			shuffle(arr)
+			for ar in arr:
+				item = types.KeyboardButton(text=str(ar))
+				but.append(item.to_dic())
 	else:
 		mes.append("Ответ '"+rightAnswer+"' принят.")
 		cur.execute("INSERT INTO T_QUEST_BEEN(ID,GAME_ID,QUEST_ID,ANSWER,RESULT) VALUES("
@@ -181,7 +197,7 @@ def editMode(cur,game,new_mode,comment):
 			but.append(item.to_dic())
 	elif new_mode=='Change Subject':
 		pass
-	elif new_mode=='Change Type':
+	elif new_mode=='Change Type' or new_mode=='Change Add Type':
 		cur.execute("""SELECT DISTINCT TYPE_CD 
 						FROM V_QUEST_NEXT_DICT d 
 						WHERE NOT EXISTS(SELECT 1 
@@ -192,7 +208,7 @@ def editMode(cur,game,new_mode,comment):
 		for type in all_types:
 			item = types.KeyboardButton(text=str(type['TYPE_CD']))
 			but.append(item.to_dic())
-	elif new_mode=='Change Block':
+	elif new_mode=='Change Block' or new_mode=='Change Add Block':
 		cur.execute("""SELECT DISTINCT BLOCK 
 						FROM V_QUEST_NEXT_DICT d 
 						WHERE NOT EXISTS(SELECT 1 
@@ -305,7 +321,14 @@ def thirdStepAddQuest(cur,game,file_type,text,size):
 	mes = []
 	but = []
 	if size<2**24:
-		file_text = "NULL" if file_type=="text" else text
+		newQuestion = game['TEMP_STR']
+		if file_type=="Текстовый":
+			file_text = 'NULL'
+			if re.search('^([^;]+;){3}[^;]+$',text):
+				file_type = "С вариантами ответов"
+				newQuestion += "|||"+text
+		else:
+			file_text = text
 		answers = game['TEMP_STR_ANS'].split('; ')
 		cur.execute("SELECT NVL(MAX(ID),0)+1 ROW_ID "
 					+"FROM T_QUEST_DICT")
@@ -313,7 +336,7 @@ def thirdStepAddQuest(cur,game,file_type,text,size):
 		sql_insert_query = """ INSERT INTO T_QUEST_DICT
 								(ID,QUESTION,ANSWER,CREATED_BY,TYPE_CD,ADD_FILE) 
 								VALUES(%s,%s,%s,%s,%s,%s)"""
-		insert_tuple = (rowId, game['TEMP_STR'], answers[0], game['USER_BOT_ID'], file_type, file_text)
+		insert_tuple = (rowId, newQuestion, answers[0], game['USER_BOT_ID'], file_type, file_text)
 		cur.execute(sql_insert_query,insert_tuple)
 		for i in range(1,len(answers)):
 			cur.execute("INSERT INTO T_QUEST_DICT_VAR (QUEST_ID,VAL) VALUES("+str(rowId)+",'"+str(answers[i])+"')")
@@ -322,7 +345,7 @@ def thirdStepAddQuest(cur,game,file_type,text,size):
 					+"TEMP_STR=NULL, "
 					+"TEMP_STR_ANS=NULL "
 					+"WHERE ID="+str(game['ID']))
-		mes.append("Спасибо, [Name]. Вопрос добавлен")
+		mes.append("Спасибо, [Name]. Вопрос добавлен в категорию: "+file_type)
 	else:
 		mes.append("[Name], файл не должен превышать 16mb. Размер вашего файла: "+str(size/1024/1024))
 	res['messages']=mes
@@ -467,7 +490,6 @@ def main(bot,type,message):
 					messageFile = bot.download_file(file_info.file_path)
 				elif type=="audio":
 					raw = message.audio.file_id
-					print('audio')
 					file_size = message.audio.file_size
 					file_info = bot.get_file(raw)
 					messageFile = bot.download_file(file_info.file_path)
@@ -551,9 +573,9 @@ def main(bot,type,message):
 							},
 							"Add File":{#режим добавления файл
 								"cancel":"cancelOperation(cur,game)",#отменить
-								"audio":"thirdStepAddQuest(cur,game,'Music',messageFile,file_size)",
-								"photo":"thirdStepAddQuest(cur,game,'Image',messageFile,file_size)",
-								"default":"thirdStepAddQuest(cur,game,'Text',messageText,0)"
+								"audio":"thirdStepAddQuest(cur,game,'Музыкальный',messageFile,file_size)",
+								"photo":"thirdStepAddQuest(cur,game,'Картинка',messageFile,file_size)",
+								"default":"thirdStepAddQuest(cur,game,'Текстовый',messageText,0)"
 							}
 						},
 						"PreAnswer":{
@@ -562,7 +584,7 @@ def main(bot,type,message):
 								"add":"editMode(cur,game,'Add Question','Введите вопрос')",#добавить новый вопрос
 								"get":"getAnswer(cur,game)",#узнать ответ
 								"dispute":"editMode(cur,game,'Dispute','Введите комментарий')",
-								"remind":"{'messages':[game['QUESTION']],'add':{'type':'','val':''},'but':[]}",
+								"remind":"{'messages':[game['QUESTION'].split('|||')[0]],'add':{'type':'','val':''},'but':[]}",
 								"comment":"editMode(cur,game,'Comment','Введите комментарий')",
 								"filter":"editMode(cur,game,'Change Filter','Выберите действие')",
 								"default":"userMoveCheck(cur,game,messageText)"#проверить
@@ -640,9 +662,9 @@ def main(bot,type,message):
 							},
 							"Add File":{#режим добавления ответа
 								"cancel":"cancelOperation(cur,game)",#отменить
-								"audio":"thirdStepAddQuest(cur,game,'Music',messageFile,file_size)",
-								"photo":"thirdStepAddQuest(cur,game,'Image',messageFile,file_size)",
-								"default":"thirdStepAddQuest(cur,game,'Text',messageText,0)"
+								"audio":"thirdStepAddQuest(cur,game,'Музыкальный',messageFile,file_size)",
+								"photo":"thirdStepAddQuest(cur,game,'Картинка',messageFile,file_size)",
+								"default":"thirdStepAddQuest(cur,game,'Текстовый',messageText,0)"
 							}
 						},
 						"PostAnswer":{
@@ -734,9 +756,9 @@ def main(bot,type,message):
 							},
 							"Add File":{#режим добавления ответа
 								"cancel":"cancelOperation(cur,game)",#отменить
-								"audio":"thirdStepAddQuest(cur,game,'Music',messageFile,file_size)",
-								"photo":"thirdStepAddQuest(cur,game,'Image',messageFile,file_size)",
-								"default":"thirdStepAddQuest(cur,game,'Text',messageText,0)"
+								"audio":"thirdStepAddQuest(cur,game,'Музыкальный',messageFile,file_size)",
+								"photo":"thirdStepAddQuest(cur,game,'Картинка',messageFile,file_size)",
+								"default":"thirdStepAddQuest(cur,game,'Текстовый',messageText,0)"
 							}
 						}
 					}
@@ -746,12 +768,20 @@ def main(bot,type,message):
 						if mode == 'debug':
 							print(game['STATUS_CD'],game['MODE_CD'],type)
 					except Exception as f:
-						print(game['STATUS_CD'],game['MODE_CD'],type)
+						pass
 					if len(x)==0:
 						result = defaultFunc(cur,game)
 					else:
 						result = eval(func[game['STATUS_CD']][game['MODE_CD']][type])
 					markup = types.ReplyKeyboardMarkup(row_width=2, resize_keyboard=True)
+					if game['TYPE_CD']=="С вариантами ответов" and type=="remind" and game['STATUS_CD']=="PreAnswer" and game['MODE_CD']=='Default':
+						arr = str(game['QUESTION']).split('|||')[1].split(';')
+						shuffle(arr)
+						btn = []
+						for ar in arr:
+							item = types.KeyboardButton(text=str(ar))
+							btn.append(item.to_dic())
+						markup.keyboard.append(btn)
 					if len(result['but'])>0:
 						markup.keyboard.append(result['but'])
 					cur.execute("SELECT c.*,b.COMM_FLG,b.RATE,b.MARK_TO_DEL "
@@ -759,18 +789,18 @@ def main(bot,type,message):
 									+"LEFT JOIN T_QUEST_BEEN b ON b.ID=m.LAST_ANSWER_ID "
 									+"where m.ID="+str(game['ID'])+" "
 									+"AND c.MODE=m.MODE_CD "
-									+"AND c.STATE=m.STATUS_CD "
+									+"AND c.STATE=m.STATUS_CD AND c.BUTTON_NAME is not null "
 									+"ORDER BY c.ORDER_BY")
 					buttons = cur.fetchall()
 					btn = []
 					btnrow = []
 					r = 1
 					for button in buttons:
-						if button['COMMAND']=='/rate' and button['RATE']:
+						if button['COMMAND']=='rate' and button['RATE']:
 							pass
-						elif button['COMMAND']=='/why' and button['COMM_FLG']==1:
+						elif button['COMMAND']=='why' and button['COMM_FLG']==1:
 							pass
-						elif button['COMMAND']=='/del' and button['MARK_TO_DEL']==1:
+						elif button['COMMAND']=='del' and button['MARK_TO_DEL']==1:
 							pass
 						else:
 							if int(str(button['ORDER_BY'])[0])>r:
@@ -781,12 +811,12 @@ def main(bot,type,message):
 							btnrow.append(itembtn.to_dic())
 					if len(btnrow)>0:
 						markup.keyboard.append(btnrow)
+					if result['add']['type']=='Картинка':
+						bot.send_photo(message.from_user.id,result['add']['val'])
+					if result['add']['type']=='Музыкальный':
+						bot.send_audio(message.from_user.id,result['add']['val'])
 					for mess in result['messages']:
 						bot.send_message(message.from_user.id, mess.replace('[Name]',str(message.from_user.first_name)), reply_markup=markup)
-					if result['add']['type']=='Image':
-						bot.send_photo(message.from_user.id,result['add']['val'])
-					if result['add']['type']=='Music':
-						bot.send_audio(message.from_user.id,result['add']['val'])
 				con.commit()
 			except Exception as e:
 				bot.send_message(message.from_user.id,"Ошибка:"+str(e))
@@ -794,12 +824,14 @@ def main(bot,type,message):
 			cur.close()
 			con.close()
 		else:
-			bot.send_message(message.from_user.id,"Троводятся технические работы")
+			bot.send_message(message.from_user.id,"Проводятся технические работы")
 	except Exception as e:
 		bot.send_message(message.from_user.id,"Ошибка:"+str(e))
 
 def start(mode):
 	try:
+		startcon = pymysql.connect(host='176.36.217.49',port=3307,user='TELEGRAM_BOT',password='!1qaZXsw2@',db='NasDB',charset='utf8mb4',cursorclass=pymysql.cursors.DictCursor,connect_timeout=30,max_allowed_packet=1000000000)
+		startcur = startcon.cursor()
 		if mode == 'debug':
 			bot = telebot.TeleBot("966106908:AAExfZn2rbdcJxyIUDmDUWF31JO7VWkj7NE")
 		else:
@@ -812,47 +844,15 @@ def start(mode):
 			main(bot,'photo',message)
 		@bot.message_handler(content_types=['text'])
 		def get_text_messages(message):
-			if message.text =='Следующий вопрoс':
-				main(bot,'next',message)
-			elif message.text =='Добавить свой вопрoс':
-				main(bot,'add',message)
-			elif message.text =='Оценить вопрoс':
-				main(bot,'rate',message)
-			elif message.text =='Oбъяснить':
-				main(bot,'why',message)
-			elif message.text =='Oтменить':
-				main(bot,'cancel',message)
-			elif message.text =='Узнать oтвет':
-				main(bot,'get',message)
-			elif message.text =='Удалить вопрoс':
-				main(bot,'del',message)
-			elif message.text =='Пожалoваться':
-				main(bot,'dispute',message)
-			elif message.text =='Напомнить вопрoс':
-				main(bot,'remind',message)
-			elif message.text =='Добавить oтзыв':
-				main(bot,'comment',message)
-			elif message.text =='Изменить фильтp':
-				main(bot,'filter',message)
-			elif message.text =='Сбрoсить':
-				main(bot,'reset',message)
-			elif message.text =='Пo теме':
-				main(bot,'chsubj',message)
-			elif message.text =='По блoку':
-				main(bot,'chblock',message)
-			elif message.text =='Пo типу':
-				main(bot,'chtype',message)
-			elif message.text =='По сложнoсти':
-				main(bot,'chtype',message)
-			elif message.text =='Нoвый фильтр':
-				main(bot,'new_filter',message)
-			elif message.text =='Дoбавить фильтр':
-				main(bot,'add_filter',message)
-			else:
-				main(bot,'default',message)
+			startcur.execute("SELECT DISTINCT BUTTON_NAME,COMMAND FROM T_QUEST_CONFIG")
+			cmnds = startcur.fetchall()
+			cmd_type = 'default'
+			for cmnd in cmnds:
+				if message.text==cmnd['BUTTON_NAME']:
+					cmd_type=cmnd['COMMAND']
+			main(bot,cmd_type,message)
 		bot.polling(none_stop=False, interval=1)
 	except Exception as e:
-		print(e)
 		start(mode)
 
 mode = 'default'
