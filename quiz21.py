@@ -73,13 +73,25 @@ def getNextQuest(cur,game):
 	mes = []
 	but = []
 	add = {"type":"","val":""}
+	if game['SEARCH_SPEC']:
+		search_spec = game['SEARCH_SPEC']
+	else:
+		search_spec = '1=1'
+	print("SELECT q.* FROM "
+				+"(SELECT c.*,ROW_NUMBER() over() rwn "
+					+"FROM V_QUEST_NEXT_DICT c "
+					+"WHERE ID=ID AND NOT EXISTS("
+								+"SELECT 1 FROM T_QUEST_BEEN u "
+								+"WHERE u.GAME_ID="+str(game['ID'])+" AND QUEST_ID=c.ID AND RESULT IS NOT NULL"
+					+") AND "+search_spec+" order by rand()) q "
+				+"where q.rwn=1")
 	cur.execute("SELECT q.* FROM "
 				+"(SELECT c.*,ROW_NUMBER() over() rwn "
 					+"FROM V_QUEST_NEXT_DICT c "
 					+"WHERE ID=ID AND NOT EXISTS("
 								+"SELECT 1 FROM T_QUEST_BEEN u "
 								+"WHERE u.GAME_ID="+str(game['ID'])+" AND QUEST_ID=c.ID AND RESULT IS NOT NULL"
-					+") order by rand()) q "
+					+") AND "+search_spec+" order by rand()) q "
 				+"where q.rwn=1")
 	quest = cur.fetchall()
 	if len(quest)>0:
@@ -174,6 +186,30 @@ def editMode(cur,game,new_mode,comment):
 	if new_mode=='Rate':
 		for i in range(1,6):
 			item = types.KeyboardButton(text=str(i))
+			but.append(item.to_dic())
+	elif new_mode=='Change Subject':
+		pass
+	elif new_mode=='Change Type':
+		cur.execute("""SELECT DISTINCT TYPE_CD 
+						FROM V_QUEST_NEXT_DICT d 
+						WHERE NOT EXISTS(SELECT 1 
+											FROM T_QUEST_BEEN b 
+											WHERE b.GAME_ID=%s AND b.QUEST_ID=d.ID AND b.RESULT IS NOT NULL
+										) AND TYPE_CD IS NOT NULL""",(game['ID']))
+		all_types = cur.fetchall()
+		for type in all_types:
+			item = types.KeyboardButton(text=str(type['TYPE_CD']))
+			but.append(item.to_dic())
+	elif new_mode=='Change Block':
+		cur.execute("""SELECT DISTINCT BLOCK 
+						FROM V_QUEST_NEXT_DICT d 
+						WHERE NOT EXISTS(SELECT 1 
+											FROM T_QUEST_BEEN b 
+											WHERE b.GAME_ID=%s AND b.QUEST_ID=d.ID AND b.RESULT IS NOT NULL
+										) AND BLOCK IS NOT NULL""",(game['ID']))
+		all_types = cur.fetchall()
+		for type in all_types:
+			item = types.KeyboardButton(text=str(type['BLOCK']))
 			but.append(item.to_dic())
 	res['messages']=mes
 	res['add']=add
@@ -282,18 +318,12 @@ def thirdStepAddQuest(cur,game,file_type,text,size):
 		cur.execute("SELECT NVL(MAX(ID),0)+1 ROW_ID "
 					+"FROM T_QUEST_DICT")
 		rowId = cur.fetchall()[0]['ROW_ID']
+		print(file_type)
 		sql_insert_query = """ INSERT INTO T_QUEST_DICT
 								(ID,QUESTION,ANSWER,CREATED_BY,TYPE_CD,ADD_FILE) 
 								VALUES(%s,%s,%s,%s,%s,%s)"""
 		insert_tuple = (rowId, game['TEMP_STR'], answers[0], game['USER_BOT_ID'], file_type, file_text)
 		cur.execute(sql_insert_query,insert_tuple)
-		#cur.execute("INSERT INTO T_QUEST_DICT(ID,QUESTION,ANSWER,CREATED_BY,TYPE_CD,ADD_FILE) VALUES("
-		#									+str(rowId)+",'"
-		#									+str(game['TEMP_STR'])+"',"
-		#									+"'"+str(answers[0])+"',"
-		#									+str(game['USER_BOT_ID'])+","
-		#									+"'"+str(file_type)+"',"
-		#									+"'"+str(file_text)+"')")
 		for i in range(1,len(answers)):
 			cur.execute("INSERT INTO T_QUEST_DICT_VAR (QUEST_ID,VAL) VALUES("+str(rowId)+",'"+str(answers[i])+"')")
 		cur.execute("UPDATE T_QUEST_MAIN "
@@ -358,12 +388,46 @@ def rateQuest(cur,game,text):
 	res['but']=but
 	return (res)
 
-def defaultFunc(cur,game):
+def addComment(cur,game,text):
 	res = {}
 	add = {"type":"","val":""}
 	mes = []
 	but = []
-	mes.append("Вы можете выбрать следующий вопрос или добавить новый")
+	cur.execute("INSERT INTO T_QUEST_COMMENT (USER_BOT_ID,TEXT) VALUES(%s,%s)",(game['USER_BOT_ID'],text))
+	mes.append("Спасибо за отзыв, Ваше мнение очень важно для меня.")
+	cur.execute("UPDATE T_QUEST_MAIN SET MODE_CD ='Default' WHERE ID=%s",(game['ID']))
+	res['messages']=mes
+	res['add']=add
+	res['but']=but
+	return (res)
+
+def setSearchSpec(cur,game,type,text):
+	res = {}
+	add = {"type":"","val":""}
+	mes = []
+	but = []
+	text = text.replace("*","''")
+	if text.find('LIKE')>0:
+		pass
+	else:
+		text = text.replace(",","'',''")
+	mes.append("Фильтр для вопросов изменен")
+	print (text)
+	if type == "add":
+		cur.execute("UPDATE T_QUEST_MAIN SET MODE_CD ='Default',SEARCH_SPEC=concat(SEARCH_SPEC,' AND ','"+text.replace('\'','\'\'')+"') WHERE ID="+str(game['ID']))
+	else:
+		cur.execute("UPDATE T_QUEST_MAIN SET MODE_CD ='Default',SEARCH_SPEC='"+text.replace('\'','\'\'')+"' WHERE ID="+str(game['ID']))
+	res['messages']=mes
+	res['add']=add
+	res['but']=but
+	return (res)
+
+def defaultFunc(cur,game,text="Вы можете выбрать следующий вопрос или добавить новый"):
+	res = {}
+	add = {"type":"","val":""}
+	mes = []
+	but = []
+	mes.append(text)
 	cur.execute("UPDATE T_QUEST_MAIN "
 				+"SET MODE_CD ='Default',"
 				+"TEMP_STR=NULL, "
@@ -394,11 +458,12 @@ def markToDelete(cur,game):
 	res['but']=but
 	return (res)
 
+
 def main(bot,type,message):
 	try:
 		if 1==1:
 		#if message.from_user.id==394246173:  #ЗАГЛУШКА
-			con = pymysql.connect(host='176.36.217.49',port=3307,user='TELEGRAM_BOT',password='!1qaZXsw2@',db='NasDB',charset='utf8mb4',cursorclass=pymysql.cursors.DictCursor)
+			con = pymysql.connect(host='176.36.217.49',port=3307,user='TELEGRAM_BOT',password='!1qaZXsw2@',db='NasDB',charset='utf8mb4',cursorclass=pymysql.cursors.DictCursor,connect_timeout=30,max_allowed_packet=1000000000)
 			cur = con.cursor()
 			try:
 				userID = getUser(cur,bot,message)
@@ -411,8 +476,9 @@ def main(bot,type,message):
 					file_info = bot.get_file(raw)
 					messageFile = bot.download_file(file_info.file_path)
 				elif type=="audio":
-					raw = message.audio[0].file_id
-					file_size = message.audio[0].file_size
+					raw = message.audio.file_id
+					print('audio')
+					file_size = message.audio.file_size
 					file_info = bot.get_file(raw)
 					messageFile = bot.download_file(file_info.file_path)
 				if userID>=0:
@@ -422,6 +488,8 @@ def main(bot,type,message):
 							"Default":{
 								"next":"getNextQuest(cur,game)",#перейти к следующему вопросу
 								"add":"editMode(cur,game,'Add Question','Введите вопрос')",#добавить новый вопрос
+								"comment":"editMode(cur,game,'Comment','Введите комментарий')",
+								"filter":"editMode(cur,game,'Change Filter','Выберите действие')",
 								"default":"defaultFunc(cur,game)"#игнорировать
 							},
 							"Add Question":{#режим добавления вопроса
@@ -431,6 +499,65 @@ def main(bot,type,message):
 							"Add Answer":{#режим добавления ответа
 								"cancel":"cancelOperation(cur,game)",#отменить
 								"default":"secondStepAddQuest(cur,game,messageText)"#ввод нового ответа
+							},
+							"Comment":{#
+								"cancel":"cancelOperation(cur,game)",#отменить
+								"default":"addComment(cur,game,messageText)"
+							},
+							"Change Filter":{#
+								"cancel":"cancelOperation(cur,game)",
+								"reset":"setSearchSpec(cur,game,'new','1=1')",
+								"add_filter":"editMode(cur,game,'Add Filter','Выберите критерий')",
+								"new_filter":"editMode(cur,game,'New Filter','Выберите критерий')",
+								"default":"setSearchSpec(cur,game,'new',messageText)"
+							},
+							"Add Filter":{#
+								"cancel":"cancelOperation(cur,game)",
+								"chtype":"editMode(cur,game,'Change Add Type','Выберите тип вопросов')",
+								"chblock":"editMode(cur,game,'Change Add Block','Выберите блок вопросов')",
+								"chsubj":"editMode(cur,game,'Change Add Subject','Выберите тему для вопросов')",
+								"chdiff":"editMode(cur,game,'Change Add Difficult','Выберите сложность вопросов')",
+								"default":"setSearchSpec(cur,game,'add',messageText)"
+							},
+							"New Filter":{#
+								"cancel":"cancelOperation(cur,game)",
+								"chtype":"editMode(cur,game,'Change Type','Выберите тип вопросов')",
+								"chblock":"editMode(cur,game,'Change Block','Выберите блок вопросов')",
+								"chsubj":"editMode(cur,game,'Change Subject','Выберите тему для вопросов')",
+								"chdiff":"editMode(cur,game,'Change Difficult','Выберите сложность вопросов')",
+								"default":"setSearchSpec(cur,game,'new',messageText)"
+							},
+							"Change Type":{#
+								"cancel":"cancelOperation(cur,game)",#отменить
+								"default":"setSearchSpec(cur,game,'new','upper(TYPE_CD) in (*'+messageText.upper()+'*)')"
+							},
+							"Change Block":{#
+								"cancel":"cancelOperation(cur,game)",#отменить
+								"default":"setSearchSpec(cur,game,'new','upper(BLOCK) in (*'+messageText.upper()+'*)')"
+							},
+							"Change Subject":{#
+								"cancel":"cancelOperation(cur,game)",#отменить
+								"default":"setSearchSpec(cur,game,'new','concat(*,*,upper(TAG_LIST),*,*) LIKE concat(*,*,*'+messageText.upper()+'*,*,*)')"
+							},
+							"Change Difficult":{#
+								"cancel":"cancelOperation(cur,game)",#отменить
+								"default":"defaultFunc(cur,game,'Данный функционал еще не разработан')"
+							},
+							"Change Add Type":{#
+								"cancel":"cancelOperation(cur,game)",#отменить
+								"default":"setSearchSpec(cur,game,'add','upper(TYPE_CD) in (*'+messageText.upper()+'*)')"
+							},
+							"Change Add Block":{#
+								"cancel":"cancelOperation(cur,game)",#отменить
+								"default":"setSearchSpec(cur,game,'add','upper(BLOCK) in (*'+messageText.upper()+'*)')"
+							},
+							"Change Add Subject":{#
+								"cancel":"cancelOperation(cur,game)",#отменить
+								"default":"setSearchSpec(cur,game,'add','concat(*,*,upper(TAG_LIST),*,*) LIKE concat(*,*,*'+messageText.upper()+'*,*,*)')"
+							},
+							"Change Add Difficult":{#
+								"cancel":"cancelOperation(cur,game)",#отменить
+								"default":"defaultFunc(cur,game,'Данный функционал еще не разработан')"
 							},
 							"Add File":{#режим добавления файл
 								"cancel":"cancelOperation(cur,game)",#отменить
@@ -446,11 +573,17 @@ def main(bot,type,message):
 								"get":"getAnswer(cur,game)",#узнать ответ
 								"dispute":"editMode(cur,game,'Dispute','Введите комментарий')",
 								"remind":"{'messages':[game['QUESTION']],'add':{'type':'','val':''},'but':[]}",
+								"comment":"editMode(cur,game,'Comment','Введите комментарий')",
+								"filter":"editMode(cur,game,'Change Filter','Выберите действие')",
 								"default":"userMoveCheck(cur,game,messageText)"#проверить
 							},
 							"Dispute":{#режим добавления ответа
 								"cancel":"cancelOperation(cur,game)",#отменить
 								"default":"disputeQuest(cur,game,messageText)"#комментировать вопрос
+							},
+							"Comment":{#
+								"cancel":"cancelOperation(cur,game)",#отменить
+								"default":"addComment(cur,game,messageText)"
 							},
 							"Add Question":{#режим добавления вопроса
 								"cancel":"cancelOperation(cur,game)",#отменить
@@ -459,6 +592,61 @@ def main(bot,type,message):
 							"Add Answer":{#режим добавления ответа
 								"cancel":"cancelOperation(cur,game)",#отменить
 								"default":"secondStepAddQuest(cur,game,messageText)"#ввод нового ответа
+							},
+							"Change Filter":{#
+								"cancel":"cancelOperation(cur,game)",
+								"reset":"setSearchSpec(cur,game,'new','1=1')",
+								"add_filter":"editMode(cur,game,'Add Filter','Выберите критерий')",
+								"new_filter":"editMode(cur,game,'New Filter','Выберите критерий')",
+								"default":"setSearchSpec(cur,game,'new',messageText)"
+							},
+							"Add Filter":{#
+								"cancel":"cancelOperation(cur,game)",
+								"chtype":"editMode(cur,game,'Change Add Type','Выберите тип вопросов')",
+								"chblock":"editMode(cur,game,'Change Add Block','Выберите блок вопросов')",
+								"chsubj":"editMode(cur,game,'Change Add Subject','Выберите тему для вопросов')",
+								"chdiff":"editMode(cur,game,'Change Add Difficult','Выберите сложность вопросов')",
+								"default":"setSearchSpec(cur,game,'add',messageText)"
+							},
+							"New Filter":{#
+								"cancel":"cancelOperation(cur,game)",
+								"chtype":"editMode(cur,game,'Change Type','Выберите тип вопросов')",
+								"chblock":"editMode(cur,game,'Change Block','Выберите блок вопросов')",
+								"chsubj":"editMode(cur,game,'Change Subject','Выберите тему для вопросов')",
+								"chdiff":"editMode(cur,game,'Change Difficult','Выберите сложность вопросов')",
+								"default":"setSearchSpec(cur,game,'new',messageText)"
+							},
+							"Change Type":{#
+								"cancel":"cancelOperation(cur,game)",#отменить
+								"default":"setSearchSpec(cur,game,'new','upper(TYPE_CD) in (*'+messageText.upper()+'*)')"
+							},
+							"Change Block":{#
+								"cancel":"cancelOperation(cur,game)",#отменить
+								"default":"setSearchSpec(cur,game,'new','upper(BLOCK) in (*'+messageText.upper()+'*)')"
+							},
+							"Change Subject":{#
+								"cancel":"cancelOperation(cur,game)",#отменить
+								"default":"setSearchSpec(cur,game,'new','concat(*,*,upper(TAG_LIST),*,*) LIKE concat(*,*,*'+messageText.upper()+'*,*,*)')"
+							},
+							"Change Difficult":{#
+								"cancel":"cancelOperation(cur,game)",#отменить
+								"default":"defaultFunc(cur,game,'Данный функционал еще не разработан')"
+							},
+							"Change Add Type":{#
+								"cancel":"cancelOperation(cur,game)",#отменить
+								"default":"setSearchSpec(cur,game,'add','upper(TYPE_CD) in (*'+messageText.upper()+'*)')"
+							},
+							"Change Add Block":{#
+								"cancel":"cancelOperation(cur,game)",#отменить
+								"default":"setSearchSpec(cur,game,'add','upper(BLOCK) in (*'+messageText.upper()+'*)')"
+							},
+							"Change Add Subject":{#
+								"cancel":"cancelOperation(cur,game)",#отменить
+								"default":"setSearchSpec(cur,game,'add','concat(*,*,upper(TAG_LIST),*,*) LIKE concat(*,*,*'+messageText.upper()+'*,*,*)')"
+							},
+							"Change Add Difficult":{#
+								"cancel":"cancelOperation(cur,game)",#отменить
+								"default":"defaultFunc(cur,game,'Данный функционал еще не разработан')"
 							},
 							"Add File":{#режим добавления ответа
 								"cancel":"cancelOperation(cur,game)",#отменить
@@ -475,7 +663,13 @@ def main(bot,type,message):
 								"rate":"editMode(cur,game,'Rate','Оцените вопрос от 1 до 5')",
 								"del":"markToDelete(cur,game)",
 								"dispute":"editMode(cur,game,'Dispute','Введите комментарий')",
+								"comment":"editMode(cur,game,'Comment','Введите комментарий')",
+								"filter":"editMode(cur,game,'Change Filter','Выберите действие')",
 								"default":"disputeQuest(cur,game,messageText)"#комментировать вопрос
+							},
+							"Comment":{#
+								"cancel":"cancelOperation(cur,game)",#отменить
+								"default":"addComment(cur,game,messageText)"
 							},
 							"Dispute":{#режим добавления ответа
 								"cancel":"cancelOperation(cur,game)",#отменить
@@ -493,6 +687,61 @@ def main(bot,type,message):
 								"cancel":"cancelOperation(cur,game)",#отменить
 								"default":"rateQuest(cur,game,messageText)"#оценка вопроса
 							},
+							"Change Filter":{#
+								"cancel":"cancelOperation(cur,game)",
+								"reset":"setSearchSpec(cur,game,'new','1=1')",
+								"add_filter":"editMode(cur,game,'Add Filter','Выберите критерий')",
+								"new_filter":"editMode(cur,game,'New Filter','Выберите критерий')",
+								"default":"setSearchSpec(cur,game,'new',messageText)"
+							},
+							"Add Filter":{#
+								"cancel":"cancelOperation(cur,game)",
+								"chtype":"editMode(cur,game,'Change Add Type','Выберите тип вопросов')",
+								"chblock":"editMode(cur,game,'Change Add Block','Выберите блок вопросов')",
+								"chsubj":"editMode(cur,game,'Change Add Subject','Выберите тему для вопросов')",
+								"chdiff":"editMode(cur,game,'Change Add Difficult','Выберите сложность вопросов')",
+								"default":"setSearchSpec(cur,game,'add',messageText)"
+							},
+							"New Filter":{#
+								"cancel":"cancelOperation(cur,game)",
+								"chtype":"editMode(cur,game,'Change Type','Выберите тип вопросов')",
+								"chblock":"editMode(cur,game,'Change Block','Выберите блок вопросов')",
+								"chsubj":"editMode(cur,game,'Change Subject','Выберите тему для вопросов')",
+								"chdiff":"editMode(cur,game,'Change Difficult','Выберите сложность вопросов')",
+								"default":"setSearchSpec(cur,game,'new',messageText)"
+							},
+							"Change Type":{#
+								"cancel":"cancelOperation(cur,game)",#отменить
+								"default":"setSearchSpec(cur,game,'new','upper(TYPE_CD) in (*'+messageText.upper()+'*)')"
+							},
+							"Change Block":{#
+								"cancel":"cancelOperation(cur,game)",#отменить
+								"default":"setSearchSpec(cur,game,'new','upper(BLOCK) in (*'+messageText.upper()+'*)')"
+							},
+							"Change Subject":{#
+								"cancel":"cancelOperation(cur,game)",#отменить
+								"default":"setSearchSpec(cur,game,'new','concat(*,*,upper(TAG_LIST),*,*) LIKE concat(*,*,*'+messageText.upper()+'*,*,*)')"
+							},
+							"Change Difficult":{#
+								"cancel":"cancelOperation(cur,game)",#отменить
+								"default":"defaultFunc(cur,game,'Данный функционал еще не разработан')"
+							},
+							"Change Add Type":{#
+								"cancel":"cancelOperation(cur,game)",#отменить
+								"default":"setSearchSpec(cur,game,'add','upper(TYPE_CD) in (*'+messageText.upper()+'*)')"
+							},
+							"Change Add Block":{#
+								"cancel":"cancelOperation(cur,game)",#отменить
+								"default":"setSearchSpec(cur,game,'add','upper(BLOCK) in (*'+messageText.upper()+'*)')"
+							},
+							"Change Add Subject":{#
+								"cancel":"cancelOperation(cur,game)",#отменить
+								"default":"setSearchSpec(cur,game,'add','concat(*,*,upper(TAG_LIST),*,*) LIKE concat(*,*,*'+messageText.upper()+'*,*,*)')"
+							},
+							"Change Add Difficult":{#
+								"cancel":"cancelOperation(cur,game)",#отменить
+								"default":"defaultFunc(cur,game,'Данный функционал еще не разработан')"
+							},
 							"Add File":{#режим добавления ответа
 								"cancel":"cancelOperation(cur,game)",#отменить
 								"audio":"thirdStepAddQuest(cur,game,'Music',messageFile,file_size)",
@@ -504,7 +753,8 @@ def main(bot,type,message):
 					x = ""
 					try:
 						x = func[game['STATUS_CD']][game['MODE_CD']][type]
-						#print(game['STATUS_CD'],game['MODE_CD'],type)
+						if mode == 'debug':
+							print(game['STATUS_CD'],game['MODE_CD'],type)
 					except Exception as f:
 						print(game['STATUS_CD'],game['MODE_CD'],type)
 					if len(x)==0:
@@ -523,6 +773,8 @@ def main(bot,type,message):
 									+"ORDER BY c.ORDER_BY")
 					buttons = cur.fetchall()
 					btn = []
+					btnrow = []
+					r = 1
 					for button in buttons:
 						if button['COMMAND']=='/rate' and button['RATE']:
 							pass
@@ -531,20 +783,20 @@ def main(bot,type,message):
 						elif button['COMMAND']=='/del' and button['MARK_TO_DEL']==1:
 							pass
 						else:
+							if int(str(button['ORDER_BY'])[0])>r:
+								markup.keyboard.append(btnrow)
+								btnrow = []
+							r = int(str(button['ORDER_BY'])[0])
 							itembtn = types.KeyboardButton(text=button['BUTTON_NAME'])
-							btn.append(itembtn.to_dic())
-					row = []
-					for i in range(0,len(btn)):
-						row.append(btn[i])
-						if i%2==1:
-							markup.keyboard.append(row)
-							row=[]
-					if len(btn)%2==1:
-						markup.add(itembtn)
+							btnrow.append(itembtn.to_dic())
+					if len(btnrow)>0:
+						markup.keyboard.append(btnrow)
 					for mess in result['messages']:
 						bot.send_message(message.from_user.id, mess.replace('[Name]',str(message.from_user.first_name)), reply_markup=markup)
 					if result['add']['type']=='Image':
 						bot.send_photo(message.from_user.id,result['add']['val'])
+					if result['add']['type']=='Music':
+						bot.send_audio(message.from_user.id,result['add']['val'])
 				con.commit()
 			except Exception as e:
 				bot.send_message(message.from_user.id,"Ошибка:"+str(e))
@@ -556,46 +808,67 @@ def main(bot,type,message):
 	except Exception as e:
 		bot.send_message(message.from_user.id,"Ошибка:"+str(e))
 
+def start(mode):
+	try:
+		if mode == 'debug':
+			bot = telebot.TeleBot("966106908:AAExfZn2rbdcJxyIUDmDUWF31JO7VWkj7NE")
+		else:
+			bot = telebot.TeleBot("959911904:AAHlPuS8mMdsqQrMmdIG0h5Y9COtyFbCpfs")
+		@bot.message_handler(content_types=['audio'])
+		def handle_docs_file(message):
+			main(bot,'audio',message)
+		@bot.message_handler(content_types=['photo'])
+		def handle_docs_file(message):
+			main(bot,'photo',message)
+		@bot.message_handler(content_types=['text'])
+		def get_text_messages(message):
+			if message.text =='Следующий вопрoс':
+				main(bot,'next',message)
+			elif message.text =='Добавить свой вопрoс':
+				main(bot,'add',message)
+			elif message.text =='Оценить вопрoс':
+				main(bot,'rate',message)
+			elif message.text =='Oбъяснить':
+				main(bot,'why',message)
+			elif message.text =='Oтменить':
+				main(bot,'cancel',message)
+			elif message.text =='Узнать oтвет':
+				main(bot,'get',message)
+			elif message.text =='Удалить вопрoс':
+				main(bot,'del',message)
+			elif message.text =='Пожалoваться':
+				main(bot,'dispute',message)
+			elif message.text =='Напомнить вопрoс':
+				main(bot,'remind',message)
+			elif message.text =='Добавить oтзыв':
+				main(bot,'comment',message)
+			elif message.text =='Изменить фильтp':
+				main(bot,'filter',message)
+			elif message.text =='Сбрoсить':
+				main(bot,'reset',message)
+			elif message.text =='Пo теме':
+				main(bot,'chsubj',message)
+			elif message.text =='По блoку':
+				main(bot,'chblock',message)
+			elif message.text =='Пo типу':
+				main(bot,'chtype',message)
+			elif message.text =='По сложнoсти':
+				main(bot,'chtype',message)
+			elif message.text =='Нoвый фильтр':
+				main(bot,'new_filter',message)
+			elif message.text =='Дoбавить фильтр':
+				main(bot,'add_filter',message)
+			else:
+				main(bot,'default',message)
+		bot.polling(none_stop=False, interval=1)
+	except Exception as e:
+		print(e)
+		start(mode)
+
 mode = 'default'
 if len(sys.argv)>1:
 	if sys.argv[1]=='debug':
 		mode = 'debug'
 	elif sys.argv[1]=='log':
 		mode = 'log'
-
-try:
-	if mode == 'debug':
-		bot = telebot.TeleBot("966106908:AAExfZn2rbdcJxyIUDmDUWF31JO7VWkj7NE")
-	else:
-		bot = telebot.TeleBot("959911904:AAHlPuS8mMdsqQrMmdIG0h5Y9COtyFbCpfs")
-	@bot.message_handler(content_types=['audio'])
-	def handle_docs_file(message):
-		main(bot,'audio',message)
-	@bot.message_handler(content_types=['photo'])
-	def handle_docs_file(message):
-		main(bot,'photo',message)
-	@bot.message_handler(content_types=['text'])
-	def get_text_messages(message):
-		if message.text =='Следующий вопрoс':
-			main(bot,'next',message)
-		elif message.text =='Добавить свой вопрoс':
-			main(bot,'add',message)
-		elif message.text =='Оценить вопрoс':
-			main(bot,'rate',message)
-		elif message.text =='Oбъяснить':
-			main(bot,'why',message)
-		elif message.text =='Oтменить':
-			main(bot,'cancel',message)
-		elif message.text =='Узнать oтвет':
-			main(bot,'get',message)
-		elif message.text =='Удалить вопрoс':
-			main(bot,'del',message)
-		elif message.text =='Пожалoваться':
-			main(bot,'dispute',message)
-		elif message.text =='Напомнить вопрoс':
-			main(bot,'remind',message)
-		else:
-			main(bot,'default',message)
-	bot.polling(none_stop=False, interval=1)
-except Exception as e:
-	print(e)
+start(mode)
