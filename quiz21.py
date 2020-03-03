@@ -77,14 +77,6 @@ def getNextQuest(cur,game):
 		search_spec = game['SEARCH_SPEC']
 	else:
 		search_spec = '1=1'
-	print("SELECT q.* FROM "
-				+"(SELECT c.*,ROW_NUMBER() over() rwn "
-					+"FROM V_QUEST_NEXT_DICT c "
-					+"WHERE ID=ID AND NOT EXISTS("
-								+"SELECT 1 FROM T_QUEST_BEEN u "
-								+"WHERE u.GAME_ID="+str(game['ID'])+" AND QUEST_ID=c.ID AND RESULT IS NOT NULL"
-					+") AND "+search_spec+" order by rand()) q "
-				+"where q.rwn=1")
 	cur.execute("SELECT q.* FROM "
 				+"(SELECT c.*,ROW_NUMBER() over() rwn "
 					+"FROM V_QUEST_NEXT_DICT c "
@@ -318,7 +310,6 @@ def thirdStepAddQuest(cur,game,file_type,text,size):
 		cur.execute("SELECT NVL(MAX(ID),0)+1 ROW_ID "
 					+"FROM T_QUEST_DICT")
 		rowId = cur.fetchall()[0]['ROW_ID']
-		print(file_type)
 		sql_insert_query = """ INSERT INTO T_QUEST_DICT
 								(ID,QUESTION,ANSWER,CREATED_BY,TYPE_CD,ADD_FILE) 
 								VALUES(%s,%s,%s,%s,%s,%s)"""
@@ -406,11 +397,11 @@ def setSearchSpec(cur,game,type,text):
 	add = {"type":"","val":""}
 	mes = []
 	but = []
-	text = text.replace("*","''")
+	text = text.replace("*","'")
 	if text.find('LIKE')>0:
 		pass
 	else:
-		text = text.replace(",","'',''")
+		text = text.replace(",","','")
 	mes.append("Фильтр для вопросов изменен")
 	print (text)
 	if type == "add":
