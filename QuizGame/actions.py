@@ -1,115 +1,7 @@
-import telebot
-import time
 import re
-import pymysql
-import pymysql.cursors
 from telebot import types
 from difflib import SequenceMatcher
-import sys
 from random import shuffle
-
-def getUser(cur,bot,message):
-	userID = -1
-	cur.execute("SELECT ID,FIRST_NAME "
-				+"FROM T_USER "
-				+"WHERE TELEGRAM_ID='"+str(message.from_user.id)+"'")
-	user = cur.fetchall()
-	if len(user)==0:
-		cur.execute("INSERT INTO T_USER(TELEGRAM_ID,FIRST_NAME,LAST_NAME,NICK_NAME) values('"
-									+str(message.from_user.id)+"','"
-									+str(message.from_user.first_name).replace('\'','\'\'')+"','"
-									+str(message.from_user.last_name).replace('\'','\'\'')+"','"
-									+str(message.from_user.username).replace('\'','\'\'')+"')")
-		bot.send_message(message.from_user.id,'Привет, '+str(user[0]['FIRST_NAME']))
-		cur.execute("SELECT ID,FIRST_NAME "
-					+"FROM T_USER "
-					+"WHERE TELEGRAM_ID='"+str(message.from_user.id)+"'")
-		user = cur.fetchall()
-		bot.send_message(message.from_user.id,'Привет, '+str(user[0]['FIRST_NAME']))
-	else:
-		cur.execute("UPDATE T_USER "
-					+"SET FIRST_NAME='"+str(message.from_user.first_name).replace('\'','\'\'')+"',"
-					+"LAST_NAME='"+str(message.from_user.last_name).replace('\'','\'\'')+"',"
-					+"NICK_NAME='"+str(message.from_user.username).replace('\'','\'\'')+"' "
-					+"where ID="+str(user[0]["ID"]))
-	cur.execute("SELECT * FROM T_USER_BOT ub,T_BOT b "
-				+"WHERE ub.USER_ID="+str(user[0]["ID"])
-				+" AND ub.BOT_ID=b.ID AND b.NAME='@QuizXIVbot'")
-	user_bot = cur.fetchall()
-	if len(user_bot)==0:
-		cur.execute("INSERT INTO T_USER_BOT (USER_ID,BOT_ID) "
-					+"SELECT "+str(user[0]["ID"])+",ID "
-					+"FROM T_BOT "
-					+"WHERE NAME='@QuizXIVbot'")
-	cur.execute("SELECT * FROM T_USER_BOT ub,T_BOT b "
-				+"WHERE ub.USER_ID="+str(user[0]["ID"])
-				+" AND ub.BOT_ID=b.ID"
-				+" AND b.NAME='@QuizXIVbot'")
-	user = cur.fetchall()
-	if user[0]['STATUS_CD']=="LOCKED":
-		bot.send_message(message.from_user.id,'Извините, ваша учетная запись заблокирована')
-	else:
-		userID = user[0]['ID']
-	return(userID)
-	
-def getGame(cur,userID,bot,tgUserId):
-	cur.execute("SELECT q.*,d.QUESTION, d.TYPE_CD "
-				+"FROM T_QUEST_MAIN q "
-				+"LEFT JOIN T_QUEST_DICT d ON q.THIS_QUEST_ID=d.ID "
-				+"WHERE q.USER_BOT_ID="+str(userID))
-	game = cur.fetchall()
-	if len(game)==0:
-		cur.execute("INSERT INTO T_QUEST_MAIN(USER_BOT_ID) "
-					+"values("+str(userID)+")")
-		cur.execute("SELECT q.*,d.QUESTION, d.TYPE_CD "
-					+"FROM T_QUEST_MAIN q "
-					+"LEFT JOIN T_QUEST_DICT d ON q.THIS_QUEST_ID=d.ID "
-					+"WHERE q.USER_BOT_ID="+str(userID))
-		bot.send_message(tgUserId,'Начнем')
-		game = cur.fetchall()
-	return(game[0])
-
-def getFile(message,type):
-	file_size = 0
-	if type=="photo":
-		raw = message.photo[0].file_id
-		file_size = message.photo[0].file_size
-	elif type=="audio":
-		raw = message.audio.file_id
-		file_size = message.audio.file_size
-	file_info = bot.get_file(raw)
-	messageFile = bot.download_file(file_info.file_path)
-	return (messageFile,file_size)
-
-def setMarkup(cur,markup):
-	cur.execute("SELECT c.*,b.COMM_FLG,b.RATE,b.MARK_TO_DEL "
-					+"from T_QUEST_CONFIG c, T_QUEST_MAIN m "
-					+"LEFT JOIN T_QUEST_BEEN b ON b.ID=m.LAST_ANSWER_ID "
-					+"where m.ID="+str(game['ID'])+" "
-					+"AND c.MODE=m.MODE_CD "
-					+"AND c.STATE=m.STATUS_CD AND c.BUTTON_NAME is not null "
-					+"ORDER BY c.ORDER_BY")
-	buttons = cur.fetchall()
-	btn = []
-	btnrow = []
-	r = 1
-	for button in buttons:
-		if button['COMMAND']=='rate' and button['RATE']:
-			pass
-		elif button['COMMAND']=='why' and button['COMM_FLG']==1:
-			pass
-		elif button['COMMAND']=='del' and button['MARK_TO_DEL']==1:
-			pass
-		else:
-			if int(str(button['ORDER_BY'])[0])>r:
-				markup.keyboard.append(btnrow)
-				btnrow = []
-			r = int(str(button['ORDER_BY'])[0])
-			itembtn = types.KeyboardButton(text=button['BUTTON_NAME'])
-			btnrow.append(itembtn.to_dic())
-	if len(btnrow)>0:
-		markup.keyboard.append(btnrow)
-	return(markup)
 
 def getNextQuest(cur,game):
 	res = {}
@@ -139,9 +31,8 @@ def getNextQuest(cur,game):
 		add["type"]=quest[0]['TYPE_CD']
 		
 		if quest[0]['TYPE_CD']=="С вариантами ответов":
-			mes.append(str(quest[0]['QUESTION']).split('|||')[0])
-			arr = str(quest[0]['QUESTION']).split('|||')[1].split(';')
-			shuffle(arr)
+			mes.append(str(quest[0]['QUESTION']))
+			arr = str(quest[0]['VARIANTS']).split(';')
 			for ar in arr:
 				item = types.KeyboardButton(text=str(ar))
 				but.append(item.to_dic())
@@ -192,7 +83,7 @@ def userMoveCheck(cur,game,answer):
 				+"FROM T_QUEST_BEEN")
 	rowId = cur.fetchall()[0]['ROW_ID']
 	if s==0:
-		mes.append("Ответ '"+answer+"' не принят.")
+		mes.append("Неправильно :( Ответ '"+answer+"' не принят.")
 		cur.execute("INSERT INTO T_QUEST_BEEN(ID,GAME_ID,QUEST_ID,ANSWER) VALUES("
 						+str(rowId)+","
 						+str(game['ID'])+","
@@ -203,13 +94,12 @@ def userMoveCheck(cur,game,answer):
 						+"STATUS_CD='PreAnswer' "
 						+"WHERE ID="+str(game['ID']))
 		if game['TYPE_CD']=="С вариантами ответов":
-			arr = str(game['QUESTION']).split('|||')[1].split(';')
-			shuffle(arr)
+			arr = str(game['VARIANTS']).split(';')
 			for ar in arr:
 				item = types.KeyboardButton(text=str(ar))
 				but.append(item.to_dic())
 	else:
-		mes.append("Ответ '"+rightAnswer+"' принят.")
+		mes.append("Правильно!!! Ответ '"+rightAnswer+"' принят.")
 		cur.execute("INSERT INTO T_QUEST_BEEN(ID,GAME_ID,QUEST_ID,ANSWER,RESULT) VALUES("
 						+str(rowId)+","
 						+str(game['ID'])+","
@@ -318,9 +208,9 @@ def cancelOperation(cur,game):
 	mes = []
 	but = []
 	add = {"type":"","val":""}
-	cur.execute("UPDATE T_QUEST_MAIN "
-				+"SET MODE_CD='Default' "
-				+"WHERE ID="+str(game['ID']))
+	cur.execute("""UPDATE T_QUEST_MAIN SET MODE_CD='Default',ADD_QUEST_ID=NULL WHERE ID=%s""",(game['ID']))
+	if game["ADD_QUEST_ID"]:
+		cur.execute("""DELETE FROM T_QUEST_DICT WHERE ID=%s""",(game["ADD_QUEST_ID"]))
 	mes.append("Охрана, отмена")
 	res['messages']=mes
 	res['add']=add
@@ -500,94 +390,62 @@ def markToDelete(cur,game):
 	add = {"type":"","val":""}
 	mes = []
 	but = []
-	if not game['LAST_ANSWER_ID']:
-		cur.execute("INSERT INTO T_QUEST_BEEN (GAME_ID,QUEST_ID,MARK_TO_DEL) VALUES ("
-											+str(game['ID'])+","+str(game['THIS_QUEST_ID'])+",1)")
-	else:
-		sql_query = """UPDATE T_QUEST_BEEN
-					SET MARK_TO_DEL=1
-					WHERE ID=%s """
-		qsl_tuple = (game['LAST_ANSWER_ID'])
-		cur.execute(sql_query,qsl_tuple)
+	cur.execute("""UPDATE T_QUEST_DICT SET ACTIVE_FLAG=0 WHERE ID=%s """,(game['THIS_QUEST_ID']))
 	mes.append("Спасибо, учту")
 	res['messages']=mes
 	res['add']=add
 	res['but']=but
 	return (res)
 
-
-def main(bot,type,message):
-	try:
-		con = pymysql.connect(host='176.36.217.49',port=3307,user='TELEGRAM_BOT',password='!1qaZXsw2@',db='NasDB',charset='utf8mb4',cursorclass=pymysql.cursors.DictCursor,connect_timeout=30,max_allowed_packet=1000000000)
-		cur = con.cursor()
-		try:
-			cur.execute("SELECT DISTINCT BUTTON_NAME,COMMAND FROM T_QUEST_CONFIG")
-			cmnds = cur.fetchall()
-			for cmnd in cmnds:
-				if message.text==cmnd['BUTTON_NAME']:
-					type=cmnd['COMMAND']
-			userID = getUser(cur,bot,message)
-			messageFile,file_size = getFile(message,type):
-			if userID>=0:
-				game = getGame(cur,userID,bot,message.from_user.id)
-				cur.execute("SELECT ACTION_SCRIPT FROM T_QUEST_CONFIG WHERE STATE=%s and MODE=%s and COMMAND=%s",(game['STATUS_CD'],game['MODE_CD'],type))
-				x = cur.fetchall()
-				if len(x)==0:
-					result = defaultFunc(cur,game)
-				else:
-					result = eval(x[0]['ACTION_SCRIPT'])
-				markup = types.ReplyKeyboardMarkup(row_width=2, resize_keyboard=True)
-				if len(result['but'])>0:
-					markup.keyboard.append(result['but'])
-				# --костыль для вариантов ответов Start
-				if game['TYPE_CD']=="С вариантами ответов" and type=="remind" and game['STATUS_CD']=="PreAnswer" and game['MODE_CD']=='Default':
-					arr = str(game['QUESTION']).split('|||')[1].split(';')
-					btn = []
-					for ar in arr:
-						item = types.KeyboardButton(text=str(ar))
-						btn.append(item.to_dic())
-					markup.keyboard.append(btn)
-				# --костыль для вариантов ответов End
-				markup = setMarkup(cur,markup)
-				if result['add']['type']=='Картинка':
-					bot.send_photo(message.from_user.id,result['add']['val'])
-				if result['add']['type']=='Музыкальный':
-					bot.send_audio(message.from_user.id,result['add']['val'])
-				for mess in result['messages']:
-					bot.send_message(message.from_user.id, mess.replace('[Name]',str(message.from_user.first_name)), reply_markup=markup)
-			con.commit()
-		except Exception as e:
-			bot.send_message(message.from_user.id,"Ошибка:"+str(e))
-			con.rollback()
-		cur.close()
-		con.close()
-	except Exception as e:
-		bot.send_message(message.from_user.id,"Ошибка:"+str(e))
-
-def start(mode):
-	try:
-		if mode == 'debug':
-			bot = telebot.TeleBot("966106908:AAExfZn2rbdcJxyIUDmDUWF31JO7VWkj7NE")
+def addNewQuestion(cur,game,text,size,field,file_type='Текстовый'):
+	res = {}
+	add = {"type":"","val":""}
+	mes = []
+	but = []
+	if not game['ADD_QUEST_ID']:
+		cur.execute("""SELECT NVL(MAX(ID),0)+1 ROW_ID FROM T_QUEST_DICT""")
+		rowId = cur.fetchall()[0]['ROW_ID']
+		cur.execute("""INSERT INTO T_QUEST_DICT (ID,ACTIVE_FLAG) VALUES(%s,%s)""",(rowId,0))
+		cur.execute("""UPDATE T_QUEST_MAIN SET ADD_QUEST_ID=%s WHERE ID=%s""",(rowId,game["ID"]))
+	else:
+		rowId = game['ADD_QUEST_ID']
+	if field=="ALL":
+		cur.execute("""SELECT * FROM T_QUEST_DICT WHERE ID=%s""",(rowId))
+		new_quest = cur.fetchall()[0]
+		if not new_quest['QUESTION'] or not new_quest['ANSWER']:
+			mes.append("Не заполнены обязательные поля (Вопрос и ответ)")
 		else:
-			bot = telebot.TeleBot("959911904:AAHlPuS8mMdsqQrMmdIG0h5Y9COtyFbCpfs")
-		@bot.message_handler(content_types=['audio'])
-		def handle_docs_file(message):
-			main(bot,'audio',message)
-		@bot.message_handler(content_types=['photo'])
-		def handle_docs_file(message):
-			main(bot,'photo',message)
-		@bot.message_handler(content_types=['text'])
-		def get_text_messages(message):
-			main(bot,'default',message)
-		bot.polling(none_stop=False, interval=1)
-	except Exception as e:
-		start(mode)
+			cur.execute("""UPDATE T_QUEST_DICT SET ACTIVE_FLAG = 1 WHERE ID=%s""",(rowId))
+			mes.append("Спасибо, [Name]. Вопрос добавлен в категорию: "+new_quest['TYPE_CD'])
+			cur.execute("""UPDATE T_QUEST_MAIN SET MODE_CD='Default',ADD_QUEST_ID=NULL WHERE ID=%s""",(game["ID"]))
+	else:
+		success = True
+		if field == "QUESTION":
+			cur.execute("""UPDATE T_QUEST_DICT SET QUESTION =%s WHERE ID=%s""",(text,rowId))
+		elif field == "ANSWER":
+			answers = text.split('; ')
+			cur.execute("""DELETE FROM T_QUEST_DICT_VAR WHERE QUEST_ID=%s""",(rowId))
+			for i in range(1,len(answers)):
+				cur.execute("""INSERT INTO T_QUEST_DICT_VAR (QUEST_ID,VAL) VALUES(%s,%s)""",(rowId,answers[i]))
+			cur.execute("""UPDATE T_QUEST_DICT SET ANSWER =%s WHERE ID=%s""",(answers[0],rowId))
+		elif field == "COMMENTS":
+			cur.execute("""UPDATE T_QUEST_DICT SET COMMENTS =%s WHERE ID=%s""",(text,rowId))
+		elif field == "ADD_FILE":
+			if size<2**24:
+				cur.execute("""UPDATE T_QUEST_DICT SET ADD_FILE =%s,TYPE_CD=%s WHERE ID=%s""",(text,file_type,rowId))
+			else:
+				success = False
+				mes.append("[Name], файл не должен превышать 16mb. Размер вашего файла: "+str(size/1024/1024))
+		elif field == "VARIANTS":
+			text = text.split(';')
+			shuffle(text)
+			text = text[0]+';'+text[1]+';'+text[2]+';'+text[3]
+			cur.execute("""UPDATE T_QUEST_DICT SET VARIANTS =%s,TYPE_CD=%s WHERE ID=%s""",(text,file_type,rowId))
+		if success:
+			mes.append("Поле "+field+" обновлено")
+			cur.execute("""UPDATE T_QUEST_MAIN SET MODE_CD='Add' WHERE ID=%s""",(game["ID"]))
+	res['messages']=mes
+	res['add']=add
+	res['but']=but
 
-if __name__=="__main__":
-	mode = 'default'
-	if len(sys.argv)>1:
-		if sys.argv[1]=='debug':
-			mode = 'debug'
-		elif sys.argv[1]=='log':
-			mode = 'log'
-	start(mode)
+	return (res)
