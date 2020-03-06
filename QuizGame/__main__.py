@@ -19,13 +19,7 @@ def main(bot,type,input_message,config):
 			if len(user)>0:
 				game = getGame(cur,user['ID'],bot,message.from_user.id)
 				if type=="reconfig" and user['ADMIN_FLAG']==1:
-					cur.execute("""INSERT INTO T_QUEST_CONFIG_LOG(ID,CREATED,STATE,MODE,COMMAND,COMMENTS,BUTTON_NAME,ORDER_BY,ACTION_SCRIPT)
-									SELECT ID,CREATED,STATE,MODE,COMMAND,COMMENTS,BUTTON_NAME,ORDER_BY,ACTION_SCRIPT FROM T_QUEST_CONFIG""")
-					cur.execute("DELETE FROM T_QUEST_CONFIG")
-					cur.execute("""INSERT INTO T_QUEST_CONFIG (STATE,MODE,COMMAND,BUTTON_NAME,ORDER_BY,ACTION_SCRIPT) 
-														SELECT STATE,MODE,COMMAND,BUTTON_NAME,ORDER_BY,ACTION_SCRIPT 
-														FROM V_QUEST_CONFIG""")
-					result = {'messages':["Реконфигурация выполнена"],'add':{'type':'','val':''},'but':[]}
+					result = reconfigure(cur)
 				else:
 					if type == 'audio' or type == 'photo':
 						messageFile,file_size = getFile(message,type,bot)
@@ -43,18 +37,9 @@ def main(bot,type,input_message,config):
 					else:
 						exec(x[0]['ACTION_SCRIPT'],globals())
 				markup = types.ReplyKeyboardMarkup(row_width=2, resize_keyboard=True)
-				if len(result['but'])>0:
-					markup.keyboard.append(result['but'])
-				# --костыль для вариантов ответов Start
-				if game['TYPE_CD']=="С вариантами ответов" and type=="remind" and game['STATUS_CD']=="PreAnswer" and game['MODE_CD']=='Default':
-					arr = str(game['VARIANTS']).split(';')
-					btn = []
-					for ar in arr:
-						item = types.KeyboardButton(text=str(ar))
-						btn.append(item.to_dic())
-					markup.keyboard.append(btn)
-				# --костыль для вариантов ответов End
-				markup = setMarkup(cur,markup,game,config)
+				for resbut in result['but']:
+					markup.keyboard.append(resbut)
+				markup = setMarkup(cur,markup,game,config,type)
 				if result['add']['type']=='Картинка':
 					bot.send_photo(message.from_user.id,result['add']['val'])
 				if result['add']['type']=='Музыкальный':

@@ -49,7 +49,14 @@ def getFile(message,type,bot):
 	messageFile = bot.download_file(file_info.file_path)
 	return (messageFile,file_size)
 
-def setMarkup(cur,markup,game,config):
+def setMarkup(cur,markup,game,config,type):
+	if game['TYPE_CD']=="С вариантами ответов" and type=="remind" and game['STATUS_CD']=="PreAnswer" and game['MODE_CD']=='Default':
+		arr = str(game['VARIANTS']).split(';')
+		btn = []
+		for ar in arr:
+			item = types.KeyboardButton(text=str(ar))
+			btn.append(item.to_dic())
+		markup.keyboard.append(btn)
 	cur.execute("""SELECT c.*,b.COMM_FLG,b.RATE,d.ACTIVE_FLAG,ad.ANSWER,ad.QUESTION,ad.ADD_FILE,ad.COMMENTS QUEST_COMM,ad.VARIANTS
 		FROM """+config+""" c, T_QUEST_MAIN m 
 		LEFT JOIN T_QUEST_BEEN b ON b.ID=m.LAST_ANSWER_ID 
@@ -104,3 +111,13 @@ def defaultFunc(cur,game,text="Вы можете выбрать следующи
 	res['add']=add
 	res['but']=but
 	return (res)
+
+def reconfigure(cur):
+	cur.execute("""INSERT INTO T_QUEST_CONFIG_LOG(ID,CREATED,STATE,MODE,COMMAND,COMMENTS,BUTTON_NAME,ORDER_BY,ACTION_SCRIPT)
+											SELECT ID,CREATED,STATE,MODE,COMMAND,COMMENTS,BUTTON_NAME,ORDER_BY,ACTION_SCRIPT 
+											FROM T_QUEST_CONFIG""")
+	cur.execute("""DELETE FROM T_QUEST_CONFIG""")
+	cur.execute("""INSERT INTO T_QUEST_CONFIG (STATE,MODE,COMMAND,BUTTON_NAME,ORDER_BY,ACTION_SCRIPT) 
+										SELECT STATE,MODE,COMMAND,BUTTON_NAME,ORDER_BY,ACTION_SCRIPT 
+										FROM V_QUEST_CONFIG""")
+	return ({'messages':["Реконфигурация выполнена"],'add':{'type':'','val':''},'but':[]})
