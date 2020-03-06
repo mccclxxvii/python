@@ -2,21 +2,29 @@ import telebot
 import pymysql
 import pymysql.cursors
 from telebot import types
+from difflib import SequenceMatcher
+from random import shuffle
 import sys
 from defs import *
-from actions import *
+#from actions import *
 
-def main(bot,type,message,config):
+def main(bot,type,input_message,config):
 	try:
 		con = pymysql.connect(host='176.36.217.49',port=3307,user='TELEGRAM_BOT',password='!1qaZXsw2@',db='NasDB',charset='utf8mb4',cursorclass=pymysql.cursors.DictCursor,connect_timeout=30,max_allowed_packet=1000000000)
+		global cur,game,result,message,messageFile,file_size
+		message = input_message
 		cur = con.cursor()
 		try:
 			user = getUser(cur,bot,message)
 			if len(user)>0:
 				game = getGame(cur,user['ID'],bot,message.from_user.id)
 				if type=="reconfig" and user['ADMIN_FLAG']==1:
+					cur.execute("""INSERT INTO T_QUEST_CONFIG_LOG(ID,CREATED,STATE,MODE,COMMAND,COMMENTS,BUTTON_NAME,ORDER_BY,ACTION_SCRIPT)
+									SELECT ID,CREATED,STATE,MODE,COMMAND,COMMENTS,BUTTON_NAME,ORDER_BY,ACTION_SCRIPT FROM T_QUEST_CONFIG""")
 					cur.execute("DELETE FROM T_QUEST_CONFIG")
-					cur.execute("INSERT INTO T_QUEST_CONFIG SELECT * FROM T_QUEST_CONFIG_DEV")
+					cur.execute("""INSERT INTO T_QUEST_CONFIG (STATE,MODE,COMMAND,BUTTON_NAME,ORDER_BY,ACTION_SCRIPT) 
+														SELECT STATE,MODE,COMMAND,BUTTON_NAME,ORDER_BY,ACTION_SCRIPT 
+														FROM V_QUEST_CONFIG""")
 					result = {'messages':["Реконфигурация выполнена"],'add':{'type':'','val':''},'but':[]}
 				else:
 					if type == 'audio' or type == 'photo':
@@ -33,7 +41,7 @@ def main(bot,type,message,config):
 					if len(x)==0:
 						result = defaultFunc(cur,game)
 					else:
-						result = eval(x[0]['ACTION_SCRIPT'])
+						exec(x[0]['ACTION_SCRIPT'],globals())
 				markup = types.ReplyKeyboardMarkup(row_width=2, resize_keyboard=True)
 				if len(result['but'])>0:
 					markup.keyboard.append(result['but'])
@@ -66,7 +74,7 @@ def start(mode):
 	try:
 		if mode == 'debug':
 			bot = telebot.TeleBot("966106908:AAExfZn2rbdcJxyIUDmDUWF31JO7VWkj7NE")
-			config = 'T_QUEST_CONFIG_DEV'
+			config = 'V_QUEST_CONFIG'
 		else:
 			bot = telebot.TeleBot("959911904:AAHlPuS8mMdsqQrMmdIG0h5Y9COtyFbCpfs")
 			config = 'T_QUEST_CONFIG'

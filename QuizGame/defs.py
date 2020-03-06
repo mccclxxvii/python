@@ -88,3 +88,19 @@ def setMarkup(cur,markup,game,config):
 	if len(btnrow)>0:
 		markup.keyboard.append(btnrow)
 	return(markup)
+
+def defaultFunc(cur,game,text="Вы можете выбрать следующий вопрос или добавить новый"):
+	res = {}
+	add = {"type":"","val":""}
+	mes = []
+	but = []
+	mes.append(text)
+	cur.execute("UPDATE T_QUEST_MAIN "
+				+"SET MODE_CD ='Default',"
+				+"TEMP_STR=NULL, "
+				+"TEMP_STR_ANS=NULL "
+				+"WHERE ID="+str(game['ID']))
+	res['messages']=mes
+	res['add']=add
+	res['but']=but
+	return (res)
